@@ -94,15 +94,6 @@ command -v ping >/dev/null 2>&1 && LOCAL_PING=true || unset LOCAL_PING
 # check for curl/wget
 command -v curl >/dev/null 2>&1 && LOCAL_CURL=true || unset LOCAL_CURL
 
-# test if the host has IPv4/IPv6 connectivity
-[[ ! -z $LOCAL_CURL ]] && IP_CHECK_CMD="curl -s -m 4" || IP_CHECK_CMD="wget -qO- -T 4"
-IPV4_CHECK=$( (ping -4 -c 1 -W 4 ipv4.google.com >/dev/null 2>&1 && echo true) || $IP_CHECK_CMD -4 icanhazip.com 2> /dev/null)
-IPV6_CHECK=$( (ping -6 -c 1 -W 4 ipv6.google.com >/dev/null 2>&1 && echo true) || $IP_CHECK_CMD -6 icanhazip.com 2> /dev/null)
-if [[ -z "$IPV4_CHECK" && -z "$IPV6_CHECK" ]]; then
-	echo -e
-	echo -e "Warning: Both IPv4 AND IPv6 connectivity were not detected. Check for DNS issues..."
-fi
-
 # print help and exit script, if help flag was passed
 if [ ! -z "$PRINT_HELP" ]; then
 	echo -e
@@ -151,12 +142,6 @@ if [ ! -z "$PRINT_HELP" ]; then
 	[[ -z $LOCAL_IPERF ]] && echo -e "       iperf3 not detected, will download precompiled binary" ||
 		[[ -z $PREFER_BIN ]] && echo -e "       iperf3 detected, using local package" ||
 		echo -e "       iperf3 detected, but using precompiled binary instead"
-	echo -e
-	echo -e "Detected Connectivity:"
-	[[ ! -z $IPV4_CHECK ]] && echo -e "       IPv4 connected" ||
-		echo -e "       IPv4 not connected"
-	[[ ! -z $IPV6_CHECK ]] && echo -e "       IPv6 connected" ||
-		echo -e "       IPv6 not connected"
 	echo -e
 	echo -e "JSON Options:"
 	[[ -z $JSON ]] && echo -e "       none"
@@ -252,77 +237,12 @@ DISTRO=$(grep 'PRETTY_NAME' /etc/os-release | cut -d '"' -f 2 )
 echo -e "Distro     : $DISTRO"
 KERNEL=$(uname -r)
 echo -e "Kernel     : $KERNEL"
-VIRT=$(systemd-detect-virt 2>/dev/null)
-VIRT=${VIRT^^} || VIRT="UNKNOWN"
-echo -e "VM Type    : $VIRT"
-[[ -z "$IPV4_CHECK" ]] && ONLINE="\xE2\x9D\x8C Offline / " || ONLINE="\xE2\x9C\x94 Online / "
-[[ -z "$IPV6_CHECK" ]] && ONLINE+="\xE2\x9D\x8C Offline" || ONLINE+="\xE2\x9C\x94 Online"
-echo -e "IPv4/IPv6  : $ONLINE"
-
-# Function to get information from IP Address using ip-api.com free API
-function ip_info() {
-	# check for curl vs wget
-	[[ ! -z $LOCAL_CURL ]] && DL_CMD="curl -s" || DL_CMD="wget -qO-"
-
-	local ip6me_resp="$($DL_CMD http://ip6.me/api/)"
-	local net_type="$(echo $ip6me_resp | cut -d, -f1)"
-	local net_ip="$(echo $ip6me_resp | cut -d, -f2)"
-
-	local response=$($DL_CMD http://ip-api.com/json/$net_ip)
-
-	# if no response, skip output
-	if [[ -z $response ]]; then
-		return
-	fi
-
-	local country=$(echo "$response" | sed -e 's/[{}]/''/g' | awk -v RS=',"' -F: '/^country/ {print $2}' | head -1 | sed 's/^"\(.*\)"$/\1/')
-	local region=$(echo "$response" | sed -e 's/[{}]/''/g' | awk -v RS=',"' -F: '/^regionName/ {print $2}' | sed 's/^"\(.*\)"$/\1/')
-	local region_code=$(echo "$response" | sed -e 's/[{}]/''/g' | awk -v RS=',"' -F: '/^region/ {print $2}' | head -1 | sed 's/^"\(.*\)"$/\1/')
-	local city=$(echo "$response" | sed -e 's/[{}]/''/g' | awk -v RS=',"' -F: '/^city/ {print $2}' | sed 's/^"\(.*\)"$/\1/')
-	local isp=$(echo "$response" | sed -e 's/[{}]/''/g' | awk -v RS=',"' -F: '/^isp/ {print $2}' | sed 's/^"\(.*\)"$/\1/')
-	local org=$(echo "$response" | sed -e 's/[{}]/''/g' | awk -v RS=',"' -F: '/^org/ {print $2}' | sed 's/^"\(.*\)"$/\1/')
-	local as=$(echo "$response" | sed -e 's/[{}]/''/g' | awk -v RS=',"' -F: '/^as/ {print $2}' | sed 's/^"\(.*\)"$/\1/')
-	
-	echo
-	echo "$net_type Network Information:"
-	echo "---------------------------------"
-
-	if [[ -n "$isp" ]]; then
-		echo "ISP        : $isp"
-	else
-		echo "ISP        : Unknown"
-	fi
-	if [[ -n "$as" ]]; then
-		echo "ASN        : $as"
-	else
-		echo "ASN        : Unknown"
-	fi
-	if [[ -n "$org" ]]; then
-		echo "Host       : $org"
-	fi
-	if [[ -n "$city" && -n "$region" ]]; then
-		echo "Location   : $city, $region ($region_code)"
-	fi
-	if [[ -n "$country" ]]; then
-		echo "Country    : $country"
-	fi 
-
-	[[ ! -z $JSON ]] && JSON_RESULT+=',"ip_info":{"protocol":"'$net_type'","isp":"'$isp'","asn":"'$as'","org":"'$org'","city":"'$city'","region":"'$region'","region_code":"'$region_code'","country":"'$country'"}'
-}
 
 if [ ! -z $JSON ]; then
 	UPTIME_S=$(awk '{print $1}' /proc/uptime)
-	IPV4=$([ ! -z $IPV4_CHECK ] && echo "true" || echo "false")
-	IPV6=$([ ! -z $IPV6_CHECK ] && echo "true" || echo "false")
-	AES=$([[ "$CPU_AES" = *Enabled* ]] && echo "true" || echo "false")
-	CPU_VIRT_BOOL=$([[ "$CPU_VIRT" = *Enabled* ]] && echo "true" || echo "false")
 	JSON_RESULT='{"version":"'$YABS_VERSION'","time":"'$TIME_START'","os":{"arch":"'$ARCH'","distro":"'$DISTRO'","kernel":"'$KERNEL'",'
-	JSON_RESULT+='"uptime":'$UPTIME_S',"vm":"'$VIRT'"},"net":{"ipv4":'$IPV4',"ipv6":'$IPV6'},"cpu":{"model":"'$CPU_PROC'","cores":'$CPU_CORES','
-	JSON_RESULT+='"freq":"'$CPU_FREQ'","aes":'$AES',"virt":'$CPU_VIRT_BOOL'},"mem":{"ram":'$TOTAL_RAM_RAW',"ram_units":"KiB","swap":'$TOTAL_SWAP_RAW',"swap_units":"KiB","disk":'$TOTAL_DISK_RAW',"disk_units":"KB"}'
-fi
-
-if [ -z $SKIP_NET ]; then
-	ip_info
+	JSON_RESULT+='"uptime":'$UPTIME_S',"vm":"'$VIRT'"},"cpu":{"model":"'$CPU_PROC'","cores":'$CPU_CORES','
+	JSON_RESULT+='"freq":"'$CPU_FREQ'","mem":{"ram":'$TOTAL_RAM_RAW',"ram_units":"KiB","swap":'$TOTAL_SWAP_RAW',"swap_units":"KiB","disk":'$TOTAL_DISK_RAW',"disk_units":"KB"}'
 fi
 
 # create a directory in the same location that the script is being run to temporarily store YABS-related files
@@ -806,26 +726,9 @@ if [ -z "$SKIP_IPERF" ]; then
 	#   4. location and advertised speed link of the iperf server
 	#   5. network modes supported by the iperf server (IPv4 = IPv4-only, IPv4|IPv6 = IPv4 + IPv6, etc.)
 	IPERF_LOCS=( \
-		"lon.speedtest.clouvider.net" "5200-5209" "Clouvider" "London, UK (10G)" "IPv4|IPv6" \
-		"iperf-ams-nl.eranium.net" "5201-5210" "Eranium" "Amsterdam, NL (100G)" "IPv4|IPv6" \
-		#"speedtest.extra.telia.fi" "5201-5208" "Telia" "Helsinki, FI (10G)" "IPv4" \
-		# AFR placeholder
-		"speedtest.uztelecom.uz" "5200-5209" "Uztelecom" "Tashkent, UZ (10G)" "IPv4|IPv6" \
-		"speedtest.sin1.sg.leaseweb.net" "5201-5210" "Leaseweb" "Singapore, SG (10G)" "IPv4|IPv6" \
-		"la.speedtest.clouvider.net" "5200-5209" "Clouvider" "Los Angeles, CA, US (10G)" "IPv4|IPv6" \
-		"speedtest.nyc1.us.leaseweb.net" "5201-5210" "Leaseweb" "NYC, NY, US (10G)" "IPv4|IPv6" \
-		"speedtest.sao1.edgoo.net" "9204-9240" "Edgoo" "Sao Paulo, BR (1G)" "IPv4|IPv6"
+		"192.168.1.3" "5200-5209" "hem.bret.dk" "Stockholm, SE (2.5G)" "IPv4" \
 	)
 
-	# if the "REDUCE_NET" flag is activated, then do a shorter iperf test with only three locations
-	# (Clouvider London, Clouvider NYC, and Online.net France)
-	if [ ! -z "$REDUCE_NET" ]; then
-		IPERF_LOCS=( \
-			"lon.speedtest.clouvider.net" "5200-5209" "Clouvider" "London, UK (10G)" "IPv4|IPv6" \
-			"speedtest.sin1.sg.leaseweb.net" "5201-5210" "Leaseweb" "Singapore, SG (10G)" "IPv4|IPv6" \
-			"speedtest.nyc1.us.leaseweb.net" "5201-5210" "Leaseweb" "NYC, NY, US (10G)" "IPv4|IPv6" \
-		)
-	fi
 	
 	# get the total number of iperf locations (total array size divided by 5 since each location has 5 elements)
 	IPERF_LOCS_NUM=${#IPERF_LOCS[@]}
