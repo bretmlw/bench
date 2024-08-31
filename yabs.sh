@@ -59,29 +59,25 @@ else
 fi
 
 # flags to skip certain performance tests
-unset PREFER_BIN SKIP_FIO SKIP_IPERF SKIP_GEEKBENCH SKIP_NET PRINT_HELP REDUCE_NET GEEKBENCH_4 GEEKBENCH_5 GEEKBENCH_6 DD_FALLBACK IPERF_DL_FAIL JSON JSON_SEND JSON_RESULT JSON_FILE
+unset PREFER_BIN SKIP_FIO SKIP_IPERF SKIP_GEEKBENCH SKIP_NET PRINT_HELP GEEKBENCH_6 DD_FALLBACK IPERF_DL_FAIL JSON JSON_SEND JSON_RESULT JSON_FILE
 GEEKBENCH_6="True" # gb6 test enabled by default
 
 # get any arguments that were passed to the script and set the associated skip flags (if applicable)
-while getopts 'bfdignhr4596jw:s:' flag; do
-	case "${flag}" in
-		b) PREFER_BIN="True" ;;
-		f) SKIP_FIO="True" ;;
-		d) SKIP_FIO="True" ;;
-		i) SKIP_IPERF="True" ;;
-		g) SKIP_GEEKBENCH="True" ;;
-		n) SKIP_NET="True" ;;
-		h) PRINT_HELP="True" ;;
-		r) REDUCE_NET="True" ;;
-		4) GEEKBENCH_4="True" && unset GEEKBENCH_6 ;;
-		5) GEEKBENCH_5="True" && unset GEEKBENCH_6 ;;
-		9) GEEKBENCH_4="True" && GEEKBENCH_5="True" && unset GEEKBENCH_6 ;;
-		6) GEEKBENCH_6="True" ;;
-		j) JSON+="j" ;; 
-		w) JSON+="w" && JSON_FILE=${OPTARG} ;;
-		s) JSON+="s" && JSON_SEND=${OPTARG} ;; 
-		*) exit 1 ;;
-	esac
+while getopts 'bfdignh6jw:s:' flag; do
+    case "${flag}" in
+        b) PREFER_BIN="True" ;;
+        f) SKIP_FIO="True" ;;
+        d) SKIP_FIO="True" ;;
+        i) SKIP_IPERF="True" ;;
+        g) SKIP_GEEKBENCH="True" ;;
+        n) SKIP_NET="True" ;;
+        h) PRINT_HELP="True" ;;
+        6) GEEKBENCH_6="True" ;;
+        j) JSON+="j" ;; 
+        w) JSON+="w" && JSON_FILE=${OPTARG} ;;
+        s) JSON+="s" && JSON_SEND=${OPTARG} ;; 
+        *) exit 1 ;;
+    esac
 done
 
 # check for local fio/iperf installs
@@ -93,6 +89,15 @@ command -v ping >/dev/null 2>&1 && LOCAL_PING=true || unset LOCAL_PING
 
 # check for curl/wget
 command -v curl >/dev/null 2>&1 && LOCAL_CURL=true || unset LOCAL_CURL
+
+# test if the host has IPv4/IPv6 connectivity
+[[ ! -z $LOCAL_CURL ]] && IP_CHECK_CMD="curl -s -m 4" || IP_CHECK_CMD="wget -qO- -T 4"
+IPV4_CHECK=$( (ping -4 -c 1 -W 4 ipv4.google.com >/dev/null 2>&1 && echo true) || $IP_CHECK_CMD -4 icanhazip.com 2> /dev/null)
+IPV6_CHECK=$( (ping -6 -c 1 -W 4 ipv6.google.com >/dev/null 2>&1 && echo true) || $IP_CHECK_CMD -6 icanhazip.com 2> /dev/null)
+if [[ -z "$IPV4_CHECK" && -z "$IPV6_CHECK" ]]; then
+	echo -e
+	echo -e "Warning: Both IPv4 AND IPv6 connectivity were not detected. Check for DNS issues..."
+fi
 
 # print help and exit script, if help flag was passed
 if [ ! -z "$PRINT_HELP" ]; then
@@ -112,12 +117,7 @@ if [ ! -z "$PRINT_HELP" ]; then
 	echo -e "       -h : prints this lovely message, shows any flags you passed,"
 	echo -e "            shows if fio/iperf3 local packages have been detected,"
 	echo -e "            then exits"
-	echo -e "       -r : reduce number of iperf3 network locations (to only three)"
-	echo -e "            to lessen bandwidth usage"
-	echo -e "       -4 : use geekbench 4 instead of geekbench 6"
-	echo -e "       -5 : use geekbench 5 instead of geekbench 6"
-	echo -e "       -9 : use both geekbench 4 AND geekbench 5 instead of geekbench 6"
-	echo -e "       -6 : user geekbench 6 in addition to 4 and/or 5 (only needed if -4, -5, or -9 are set; -6 must come last)"
+	echo -e "       -6 : run Geekbench 6 benchmark"
 	echo -e "       -j : print jsonified YABS results at conclusion of test"
 	echo -e "       -w <filename> : write jsonified YABS results to disk using file name provided"
 	echo -e "       -s <url> : send jsonified YABS results to URL"
@@ -130,10 +130,7 @@ if [ ! -z "$PRINT_HELP" ]; then
 	[[ ! -z $SKIP_IPERF ]] && echo -e "       -i, skipping iperf network test"
 	[[ ! -z $SKIP_GEEKBENCH ]] && echo -e "       -g, skipping geekbench test"
 	[[ ! -z $SKIP_NET ]] && echo -e "       -n, skipping network info lookup and print out"
-	[[ ! -z $REDUCE_NET ]] && echo -e "       -r, using reduced (3) iperf3 locations"
-	[[ ! -z $GEEKBENCH_4 ]] && echo -e "       running geekbench 4"
-	[[ ! -z $GEEKBENCH_5 ]] && echo -e "       running geekbench 5"
-	[[ ! -z $GEEKBENCH_6 ]] && echo -e "       running geekbench 6"
+	[[ ! -z $GEEKBENCH_6 ]] && echo -e "       running Geekbench 6"
 	echo -e
 	echo -e "Local Binary Check:"
 	[[ -z $LOCAL_FIO ]] && echo -e "       fio not detected, will download precompiled binary" ||
@@ -142,6 +139,12 @@ if [ ! -z "$PRINT_HELP" ]; then
 	[[ -z $LOCAL_IPERF ]] && echo -e "       iperf3 not detected, will download precompiled binary" ||
 		[[ -z $PREFER_BIN ]] && echo -e "       iperf3 detected, using local package" ||
 		echo -e "       iperf3 detected, but using precompiled binary instead"
+	echo -e
+	echo -e "Detected Connectivity:"
+	[[ ! -z $IPV4_CHECK ]] && echo -e "       IPv4 connected" ||
+		echo -e "       IPv4 not connected"
+	[[ ! -z $IPV6_CHECK ]] && echo -e "       IPv6 connected" ||
+		echo -e "       IPv6 not connected"
 	echo -e
 	echo -e "JSON Options:"
 	[[ -z $JSON ]] && echo -e "       none"
@@ -193,7 +196,7 @@ function format_size {
 	echo $RESULT
 }
 
-# gather basic system information (inc. CPU, AES-NI/virt status, RAM + swap + disk size)
+# gather basic system information (inc. CPU, RAM, Distro, Kernel)
 echo -e 
 echo -e "Basic System Information:"
 echo -e "---------------------------------"
@@ -217,33 +220,43 @@ else
 	CPU_FREQ=$(awk -F: ' /cpu MHz/ {freq=$2} END {print freq " MHz"}' /proc/cpuinfo | sed 's/^[ \t]*//;s/[ \t]*$//')
 fi
 echo -e "CPU cores  : $CPU_CORES @ $CPU_FREQ"
-CPU_AES=$(cat /proc/cpuinfo | grep aes)
-[[ -z "$CPU_AES" ]] && CPU_AES="\xE2\x9D\x8C Disabled" || CPU_AES="\xE2\x9C\x94 Enabled"
-echo -e "AES-NI     : $CPU_AES"
-CPU_VIRT=$(cat /proc/cpuinfo | grep 'vmx\|svm')
-[[ -z "$CPU_VIRT" ]] && CPU_VIRT="\xE2\x9D\x8C Disabled" || CPU_VIRT="\xE2\x9C\x94 Enabled"
-echo -e "VM-x/AMD-V : $CPU_VIRT"
 TOTAL_RAM_RAW=$(free | awk 'NR==2 {print $2}')
 TOTAL_RAM=$(format_size $TOTAL_RAM_RAW)
 echo -e "RAM        : $TOTAL_RAM"
-TOTAL_SWAP_RAW=$(free | grep Swap | awk '{ print $2 }')
-TOTAL_SWAP=$(format_size $TOTAL_SWAP_RAW)
-echo -e "Swap       : $TOTAL_SWAP"
-# total disk size is calculated by adding all partitions of the types listed below (after the -t flags)
-TOTAL_DISK_RAW=$(df -t simfs -t ext2 -t ext3 -t ext4 -t btrfs -t xfs -t vfat -t ntfs -t swap --total 2>/dev/null | grep total | awk '{ print $2 }')
-TOTAL_DISK=$(format_size $TOTAL_DISK_RAW)
-echo -e "Disk       : $TOTAL_DISK"
 DISTRO=$(grep 'PRETTY_NAME' /etc/os-release | cut -d '"' -f 2 )
 echo -e "Distro     : $DISTRO"
 KERNEL=$(uname -r)
 echo -e "Kernel     : $KERNEL"
 
 if [ ! -z $JSON ]; then
-	UPTIME_S=$(awk '{print $1}' /proc/uptime)
-	JSON_RESULT='{"version":"'$YABS_VERSION'","time":"'$TIME_START'","os":{"arch":"'$ARCH'","distro":"'$DISTRO'","kernel":"'$KERNEL'",'
-	JSON_RESULT+='"uptime":'$UPTIME_S',"vm":"'$VIRT'"},"cpu":{"model":"'$CPU_PROC'","cores":'$CPU_CORES','
-	JSON_RESULT+='"freq":"'$CPU_FREQ'","mem":{"ram":'$TOTAL_RAM_RAW',"ram_units":"KiB","swap":'$TOTAL_SWAP_RAW',"swap_units":"KiB","disk":'$TOTAL_DISK_RAW',"disk_units":"KB"}'
+    UPTIME_S=$(awk '{print $1}' /proc/uptime)
+    JSON_RESULT=$(cat <<EOF
+{
+    "version": "$YABS_VERSION",
+    "time": "$TIME_START",
+    "os": {
+        "arch": "$ARCH",
+        "distro": "$DISTRO",
+        "kernel": "$KERNEL",
+        "uptime": $UPTIME_S
+    },
+    "cpu": {
+        "model": "$CPU_PROC",
+        "cores": $CPU_CORES,
+        "freq": "$CPU_FREQ"
+    },
+    "mem": {
+        "ram": $TOTAL_RAM_RAW,
+        "ram_units": "KiB"
+    }
+EOF
+    )
 fi
+
+# Remove the call to ip_info function
+# if [ -z $SKIP_NET ]; then
+#     ip_info
+# fi
 
 # create a directory in the same location that the script is being run to temporarily store YABS-related files
 DATE=$(date -Iseconds | sed -e "s/:/_/g")
@@ -726,10 +739,9 @@ if [ -z "$SKIP_IPERF" ]; then
 	#   4. location and advertised speed link of the iperf server
 	#   5. network modes supported by the iperf server (IPv4 = IPv4-only, IPv4|IPv6 = IPv4 + IPv6, etc.)
 	IPERF_LOCS=( \
-		"192.168.1.3" "5200-5209" "hem.bret.dk" "Stockholm, SE (2.5G)" "IPv4" \
+		"192.168.1.106" "5201-5201" "home" "Stockholm, SE (1G)" "IPv4"
 	)
 
-	
 	# get the total number of iperf locations (total array size divided by 5 since each location has 5 elements)
 	IPERF_LOCS_NUM=${#IPERF_LOCS[@]}
 	IPERF_LOCS_NUM=$((IPERF_LOCS_NUM / 5))
@@ -747,133 +759,110 @@ if [ -z "$SKIP_IPERF" ]; then
 fi
 
 # launch_geekbench
-# Purpose: This method is designed to run the Primate Labs' Geekbench 4/5 Cross-Platform Benchmark utility
+# Purpose: This method is designed to run the Primate Labs' Geekbench 6 Cross-Platform Benchmark utility
 # Parameters:
 #          1. VERSION - indicates which Geekbench version to run
 function launch_geekbench {
-	VERSION=$1
+    VERSION=$1
 
-	# create a temp directory to house all geekbench files
-	GEEKBENCH_PATH=$YABS_PATH/geekbench_$VERSION
-	mkdir -p "$GEEKBENCH_PATH"
+    # create a temp directory to house all geekbench files
+    GEEKBENCH_PATH=$YABS_PATH/geekbench_$VERSION
+    mkdir -p "$GEEKBENCH_PATH"
 
-	GB_URL=""
-	GB_CMD=""
-	GB_RUN=""
+    GB_URL=""
+    GB_CMD=""
+    GB_RUN=""
 
-	# check for curl vs wget
-	[[ ! -z $LOCAL_CURL ]] && DL_CMD="curl -s" || DL_CMD="wget -qO-"
+    # check for curl vs wget
+    [[ ! -z $LOCAL_CURL ]] && DL_CMD="curl -s" || DL_CMD="wget -qO-"
 
-	if [[ $VERSION == *4* && ($ARCH = *aarch64* || $ARCH = *arm*) ]]; then
-		echo -e "\nARM architecture not supported by Geekbench 4, use Geekbench 5 or 6."
-	elif [[ $VERSION == *4* && $ARCH != *aarch64* && $ARCH != *arm* ]]; then # Geekbench v4
-		GB_URL="https://cdn.geekbench.com/Geekbench-4.4.4-Linux.tar.gz"
-		[[ "$ARCH" == *"x86"* ]] && GB_CMD="geekbench_x86_32" || GB_CMD="geekbench4"
-		GB_RUN="True"
-	elif [[ $VERSION == *5* || $VERSION == *6* ]]; then # Geekbench v5/6
-		if [[ $ARCH = *x86* && $GEEKBENCH_4 == *False* ]]; then # don't run Geekbench 5 if on 32-bit arch
-			echo -e "\nGeekbench $VERSION cannot run on 32-bit architectures. Re-run with -4 flag to use"
-			echo -e "Geekbench 4, which can support 32-bit architectures. Skipping Geekbench $VERSION."
-		elif [[ $ARCH = *x86* && $GEEKBENCH_4 == *True* ]]; then
-			echo -e "\nGeekbench $VERSION cannot run on 32-bit architectures. Skipping test."
-		else
-			if [[ $VERSION == *5* ]]; then # Geekbench v5
-				[[ $ARCH = *aarch64* || $ARCH = *arm* ]] && GB_URL="https://cdn.geekbench.com/Geekbench-5.5.1-LinuxARMPreview.tar.gz" \
-					|| GB_URL="https://cdn.geekbench.com/Geekbench-5.5.1-Linux.tar.gz"
-				GB_CMD="geekbench5"
-			else # Geekbench v6
-				[[ $ARCH = *aarch64* || $ARCH = *arm* ]] && GB_URL="https://cdn.geekbench.com/Geekbench-6.3.0-LinuxARMPreview.tar.gz" \
-					|| GB_URL="https://cdn.geekbench.com/Geekbench-6.3.0-Linux.tar.gz"
-				GB_CMD="geekbench6"
-			fi
-			GB_RUN="True"
-		fi
-	fi
+    if [[ $VERSION == *6* ]]; then # Geekbench v6
+        if [[ $ARCH = *x86* ]]; then
+            echo -e "\nGeekbench 6 cannot run on 32-bit architectures. Skipping test."
+        else
+            [[ $ARCH = *aarch64* || $ARCH = *arm* ]] && GB_URL="https://cdn.geekbench.com/Geekbench-6.3.0-LinuxARMPreview.tar.gz" \
+                || GB_URL="https://cdn.geekbench.com/Geekbench-6.3.0-Linux.tar.gz"
+            GB_CMD="geekbench6"
+            GB_RUN="True"
+        fi
+    fi
 
-	if [[ $GB_RUN == *True* ]]; then # run GB test
-		echo -en "\nRunning GB$VERSION benchmark test... *cue elevator music*"
+    if [[ $GB_RUN == *True* ]]; then # run GB test
+        echo -en "\nRunning GB$VERSION benchmark test... *cue elevator music*"
 
-		# check for local geekbench installed
-		if command -v "$GB_CMD" &>/dev/null; then
-			GEEKBENCH_PATH=$(dirname "$(command -v "$GB_CMD")")
-		else
-			# download the desired Geekbench tarball and extract to geekbench temp directory
-			$DL_CMD $GB_URL | tar xz --strip-components=1 -C "$GEEKBENCH_PATH" &>/dev/null
-		fi
+        # check for local geekbench installed
+        if command -v "$GB_CMD" &>/dev/null; then
+            GEEKBENCH_PATH=$(dirname "$(command -v "$GB_CMD")")
+        else
+            # download the desired Geekbench tarball and extract to geekbench temp directory
+            $DL_CMD $GB_URL | tar xz --strip-components=1 -C "$GEEKBENCH_PATH" &>/dev/null
+        fi
 
-		# unlock if license file detected
-		test -f "geekbench.license" && "$GEEKBENCH_PATH/$GB_CMD" --unlock $(cat geekbench.license) > /dev/null 2>&1
+        # unlock if license file detected
+        test -f "geekbench.license" && "$GEEKBENCH_PATH/$GB_CMD" --unlock $(cat geekbench.license) > /dev/null 2>&1
 
-		# run the Geekbench test and grep the test results URL given at the end of the test
-		GEEKBENCH_TEST=$("$GEEKBENCH_PATH/$GB_CMD" --upload 2>/dev/null | grep "https://browser")
+        # run the Geekbench test and grep the test results URL given at the end of the test
+        GEEKBENCH_TEST=$("$GEEKBENCH_PATH/$GB_CMD" --upload 2>/dev/null | grep "https://browser")
 
-		# ensure the test ran successfully
-		if [ -z "$GEEKBENCH_TEST" ]; then
-			# detect if CentOS 7 and print a more helpful error message
-			if grep -q "CentOS Linux 7" /etc/os-release; then
-				echo -e "\r\033[0K CentOS 7 and Geekbench have known issues relating to glibc (see issue #71 for details)"
-			fi
-			if [[ -z "$IPV4_CHECK" ]]; then
-				# Geekbench test failed to download because host lacks IPv4 (cdn.geekbench.com = IPv4 only)
-				echo -e "\r\033[0KGeekbench releases can only be downloaded over IPv4. FTP the Geekbench files and run manually."
-			elif [[ $VERSION != *4* && $TOTAL_RAM_RAW -le 1048576 ]]; then
-				# Geekbench 5/6 test failed with low memory (<=1GB)
-				echo -e "\r\033[0KGeekbench test failed and low memory was detected. Add at least 1GB of SWAP or use GB4 instead (higher compatibility with low memory systems)."
-			elif [[ $ARCH != *x86* ]]; then
-				# if the Geekbench test failed for any other reason, exit cleanly and print error message
-				echo -e "\r\033[0KGeekbench $VERSION test failed. Run manually to determine cause."
-			fi
-		else
-			# if the Geekbench test succeeded, parse the test results URL
-			GEEKBENCH_URL=$(echo -e $GEEKBENCH_TEST | head -1)
-			GEEKBENCH_URL_CLAIM=$(echo $GEEKBENCH_URL | awk '{ print $2 }')
-			GEEKBENCH_URL=$(echo $GEEKBENCH_URL | awk '{ print $1 }')
-			# sleep a bit to wait for results to be made available on the geekbench website
-			sleep 10
-			# parse the public results page for the single and multi core geekbench scores
-			[[ $VERSION == *4* ]] && GEEKBENCH_SCORES=$($DL_CMD $GEEKBENCH_URL | grep "span class='score'") || \
-				GEEKBENCH_SCORES=$($DL_CMD $GEEKBENCH_URL | grep "div class='score'")
-				
-			GEEKBENCH_SCORES_SINGLE=$(echo $GEEKBENCH_SCORES | awk -v FS="(>|<)" '{ print $3 }')
-			GEEKBENCH_SCORES_MULTI=$(echo $GEEKBENCH_SCORES | awk -v FS="(>|<)" '{ print $7 }')
-		
-			# print the Geekbench results
-			echo -en "\r\033[0K"
-			echo -e "Geekbench $VERSION Benchmark Test:"
-			echo -e "---------------------------------"
-			printf "%-15s | %-30s\n" "Test" "Value"
-			printf "%-15s | %-30s\n"
-			printf "%-15s | %-30s\n" "Single Core" "$GEEKBENCH_SCORES_SINGLE"
-			printf "%-15s | %-30s\n" "Multi Core" "$GEEKBENCH_SCORES_MULTI"
-			printf "%-15s | %-30s\n" "Full Test" "$GEEKBENCH_URL"
+        # ensure the test ran successfully
+        if [ -z "$GEEKBENCH_TEST" ]; then
+            # detect if CentOS 7 and print a more helpful error message
+            if grep -q "CentOS Linux 7" /etc/os-release; then
+                echo -e "\r\033[0K CentOS 7 and Geekbench have known issues relating to glibc (see issue #71 for details)"
+            fi
+            if [[ -z "$IPV4_CHECK" ]]; then
+                # Geekbench test failed to download because host lacks IPv4 (cdn.geekbench.com = IPv4 only)
+                echo -e "\r\033[0KGeekbench releases can only be downloaded over IPv4. FTP the Geekbench files and run manually."
+            elif [[ $VERSION != *4* && $TOTAL_RAM_RAW -le 1048576 ]]; then
+                # Geekbench 5/6 test failed with low memory (<=1GB)
+                echo -e "\r\033[0KGeekbench test failed and low memory was detected. Add at least 1GB of SWAP or use GB4 instead (higher compatibility with low memory systems)."
+            elif [[ $ARCH != *x86* ]]; then
+                # if the Geekbench test failed for any other reason, exit cleanly and print error message
+                echo -e "\r\033[0KGeekbench $VERSION test failed. Run manually to determine cause."
+            fi
+        else
+            # if the Geekbench test succeeded, parse the test results URL
+            GEEKBENCH_URL=$(echo -e $GEEKBENCH_TEST | head -1)
+            GEEKBENCH_URL_CLAIM=$(echo $GEEKBENCH_URL | awk '{ print $2 }')
+            GEEKBENCH_URL=$(echo $GEEKBENCH_URL | awk '{ print $1 }')
+            # sleep a bit to wait for results to be made available on the geekbench website
+            sleep 10
+            # parse the public results page for the single and multi core geekbench scores
+            [[ $VERSION == *4* ]] && GEEKBENCH_SCORES=$($DL_CMD $GEEKBENCH_URL | grep "span class='score'") || \
+                GEEKBENCH_SCORES=$($DL_CMD $GEEKBENCH_URL | grep "div class='score'")
+                
+            GEEKBENCH_SCORES_SINGLE=$(echo $GEEKBENCH_SCORES | awk -v FS="(>|<)" '{ print $3 }')
+            GEEKBENCH_SCORES_MULTI=$(echo $GEEKBENCH_SCORES | awk -v FS="(>|<)" '{ print $7 }')
+        
+            # print the Geekbench results
+            echo -en "\r\033[0K"
+            echo -e "Geekbench $VERSION Benchmark Test:"
+            echo -e "---------------------------------"
+            printf "%-15s | %-30s\n" "Test" "Value"
+            printf "%-15s | %-30s\n"
+            printf "%-15s | %-30s\n" "Single Core" "$GEEKBENCH_SCORES_SINGLE"
+            printf "%-15s | %-30s\n" "Multi Core" "$GEEKBENCH_SCORES_MULTI"
+            printf "%-15s | %-30s\n" "Full Test" "$GEEKBENCH_URL"
 
-			if [ ! -z $JSON ]; then
-				JSON_RESULT+='{"version":'$VERSION',"single":'$GEEKBENCH_SCORES_SINGLE',"multi":'$GEEKBENCH_SCORES_MULTI
-				JSON_RESULT+=',"url":"'$GEEKBENCH_URL'"},'
-			fi
+            if [ ! -z $JSON ]; then
+                JSON_RESULT+='{"version":'$VERSION',"single":'$GEEKBENCH_SCORES_SINGLE',"multi":'$GEEKBENCH_SCORES_MULTI
+                JSON_RESULT+=',"url":"'$GEEKBENCH_URL'"},'
+            fi
 
-			# write the geekbench claim URL to a file so the user can add the results to their profile (if desired)
-			[ ! -z "$GEEKBENCH_URL_CLAIM" ] && echo -e "$GEEKBENCH_URL_CLAIM" >> geekbench_claim.url 2> /dev/null
-		fi
-	fi
+            # write the geekbench claim URL to a file so the user can add the results to their profile (if desired)
+            [ ! -z "$GEEKBENCH_URL_CLAIM" ] && echo -e "$GEEKBENCH_URL_CLAIM" >> geekbench_claim.url 2> /dev/null
+        fi
+    fi
 }
 
 # if the skip geekbench flag was set, skip the system performance test, otherwise test system performance
 if [ -z "$SKIP_GEEKBENCH" ]; then
-	[[ ! -z $JSON ]] && JSON_RESULT+=',"geekbench":['
-	if [[ $GEEKBENCH_4 == *True* ]]; then
-		launch_geekbench 4
-	fi
-
-	if [[ $GEEKBENCH_5 == *True* ]]; then
-		launch_geekbench 5
-	fi
-
-	if [[ $GEEKBENCH_6 == *True* ]]; then
-		launch_geekbench 6
-	fi
-	[[ ! -z $JSON ]] && [[ $(echo -n $JSON_RESULT | tail -c 1) == ',' ]] && JSON_RESULT=${JSON_RESULT::${#JSON_RESULT}-1}
-	[[ ! -z $JSON ]] && JSON_RESULT+=']'
+    [[ ! -z $JSON ]] && JSON_RESULT+=',"geekbench":['
+    if [[ $GEEKBENCH_6 == *True* ]]; then
+        launch_geekbench 6
+    fi
+    [[ ! -z $JSON ]] && [[ $(echo -n $JSON_RESULT | tail -c 1) == ',' ]] && JSON_RESULT=${JSON_RESULT::${#JSON_RESULT}-1}
+    [[ ! -z $JSON ]] && JSON_RESULT+=']'
 fi
 
 # finished all tests, clean up all YABS files and exit
@@ -909,7 +898,7 @@ if [[ ! -z $JSON ]]; then
 
 	# write json results to file
 	if [[ $JSON = *w* ]]; then
-		echo $JSON_RESULT > "$JSON_FILE"
+		echo "$JSON_RESULT" | python3 -m json.tool > "$JSON_FILE"
 	fi
 
 	# send json results
@@ -918,9 +907,9 @@ if [[ ! -z $JSON ]]; then
 		for JSON_SITE in "${JSON_SITES[@]}"
 		do
 			if [[ ! -z $LOCAL_CURL ]]; then
-				curl -s -H "Content-Type:application/json" -X POST --data ''"$JSON_RESULT"'' $JSON_SITE
+				curl -s -H "Content-Type:application/json" -X POST --data "$JSON_RESULT" $JSON_SITE
 			else
-				wget -qO- --post-data=''"$JSON_RESULT"'' --header='Content-Type:application/json' $JSON_SITE
+				wget -qO- --post-data="$JSON_RESULT" --header='Content-Type:application/json' $JSON_SITE
 			fi
 		done
 	fi
@@ -928,7 +917,7 @@ if [[ ! -z $JSON ]]; then
 	# print json result to screen
 	if [[ $JSON = *j* ]]; then
 		echo -e
-		echo $JSON_RESULT
+		echo "$JSON_RESULT" | python3 -m json.tool
 	fi
 fi
 
