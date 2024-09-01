@@ -740,7 +740,7 @@ if [ -z "$SKIP_IPERF" ]; then
 	#   4. location and advertised speed link of the iperf server
 	#   5. network modes supported by the iperf server (IPv4 = IPv4-only, IPv4|IPv6 = IPv4 + IPv6, etc.)
 	IPERF_LOCS=( \
-		"192.168.1.106" "5201-5201" "home" "Stockholm, SE (1G)" "IPv4"
+		"192.168.1.3" "5201-5201" "home" "Stockholm, SE (1G)" "IPv4"
 	)
 
 	# get the total number of iperf locations (total array size divided by 5 since each location has 5 elements)
