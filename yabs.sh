@@ -200,8 +200,9 @@ function format_size {
 echo -e 
 echo -e "Basic System Information:"
 echo -e "---------------------------------"
-UPTIME=$(uptime | awk -F'( |,|:)+' '{d=h=m=0; if ($7=="min") m=$6; else {if ($7~/^day/) {d=$6;h=$8;m=$9} else {h=$6;m=$7}}} {print d+0,"days,",h+0,"hours,",m+0,"minutes"}')
-echo -e "Uptime     : $UPTIME"
+# Remove the following line to get rid of Uptime output
+# UPTIME=$(uptime | awk -F'( |,|:)+' '{d=h=m=0; if ($7=="min") m=$6; else {if ($7~/^day/) {d=$6;h=$8;m=$9} else {h=$6;m=$7}}} {print d+0,"days,",h+0,"hours,",m+0,"minutes"}')
+# echo -e "Uptime     : $UPTIME"
 # check for local lscpu installs
 command -v lscpu >/dev/null 2>&1 && LOCAL_LSCPU=true || unset LOCAL_LSCPU
 if [[ $ARCH = *aarch64* || $ARCH = *arm* ]] && [[ ! -z $LOCAL_LSCPU ]]; then
@@ -212,12 +213,12 @@ fi
 echo -e "Processor  : $CPU_PROC"
 if [[ $ARCH = *aarch64* || $ARCH = *arm* ]] && [[ ! -z $LOCAL_LSCPU ]]; then
 	CPU_CORES=$(lscpu | grep "^[[:blank:]]*CPU(s):" | sed 's/CPU(s): *//g')
-	CPU_FREQ=$(lscpu | grep "CPU max MHz" | sed 's/CPU max MHz: *//g')
+	CPU_FREQ=$(lscpu | grep "CPU max MHz" | sed 's/CPU max MHz: *//g' | cut -d. -f1)
 	[[ -z "$CPU_FREQ" ]] && CPU_FREQ="???"
 	CPU_FREQ="${CPU_FREQ} MHz"
 else
 	CPU_CORES=$(awk -F: '/model name/ {core++} END {print core}' /proc/cpuinfo)
-	CPU_FREQ=$(awk -F: ' /cpu MHz/ {freq=$2} END {print freq " MHz"}' /proc/cpuinfo | sed 's/^[ \t]*//;s/[ \t]*$//')
+	CPU_FREQ=$(awk -F: ' /cpu MHz/ {freq=$2} END {print freq " MHz"}' /proc/cpuinfo | sed 's/^[ \t]*//;s/[ \t]*$//' | cut -d. -f1)
 fi
 echo -e "CPU cores  : $CPU_CORES @ $CPU_FREQ"
 TOTAL_RAM_RAW=$(free | awk 'NR==2 {print $2}')
