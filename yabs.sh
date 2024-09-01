@@ -316,8 +316,10 @@ if [ ! -z $JSON ]; then
         "model": "$CPU_PROC",
         "cores": $CPU_CORES,
         "freq": "$CPU_FREQ",
-        "governor": "$CPU_GOVERNOR",
-        "policy": "$CPU_POLICY"
+        "original_governor": "$ORIGINAL_GOVERNOR",
+        "original_policy": "$ORIGINAL_POLICY",
+		"tested_governor": "$new_governor",
+		"tested_policy": "$new_policy"
     },
     "mem": {
         "ram": $TOTAL_RAM_RAW,

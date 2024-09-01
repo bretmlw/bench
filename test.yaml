@@ -1,36 +1,28 @@
 {
     "version": "v2024-06-09",
-    "time": "20240901-104437",
+    "time": "20240901-105241",
     "os": {
         "arch": "aarch64",
         "distro": "Debian GNU/Linux 12 (bookworm)",
         "kernel": "6.6.31+rpt-rpi-2712",
-        "uptime": 83231.89
+        "uptime": 83716.38
     },
     "cpu": {
         "model": "Cortex-A76",
         "cores": 4,
         "freq": "2400 MHz",
-        "governor": "",
-        "policy": ""
+        "original_governor": "ondemand",
+        "original_policy": "ondemand",
+        "tested_governor": "performance",
+        "tested_policy": "performance"
     },
     "mem": {
         "ram": 8245648,
         "ram_units": "KiB"
     },
-    "iperf": [
-        {
-            "mode": "IPv4",
-            "provider": "home",
-            "loc": "Stockholm, SE (1G)",
-            "send": "937 Mbits/sec",
-            "recv": "941 Mbits/sec",
-            "latency": "0.179 ms"
-        }
-    ],
     "runtime": {
-        "start": 1725183877,
-        "end": 1725183898,
-        "elapsed": 21
+        "start": 1725184361,
+        "end": 1725184361,
+        "elapsed": 0
     }
 }
