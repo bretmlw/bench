@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Check if script is run as root or with sudo
+if [ "$EUID" -ne 0 ]; then
+    echo "Please run this script as root or with sudo."
+    exit 1
+fi
+
 # Yet Another Bench Script by Mason Rowe
 # Initial Oct 2019; Last update Jun 2024
 
@@ -63,7 +69,7 @@ unset PREFER_BIN SKIP_FIO SKIP_IPERF SKIP_GEEKBENCH SKIP_NET PRINT_HELP GEEKBENC
 GEEKBENCH_6="True" # gb6 test enabled by default
 
 # get any arguments that were passed to the script and set the associated skip flags (if applicable)
-while getopts 'bfdignh6jw:s:' flag; do
+while getopts 'bfdignh6jw:s:p' flag; do
     case "${flag}" in
         b) PREFER_BIN="True" ;;
         f) SKIP_FIO="True" ;;
@@ -76,6 +82,7 @@ while getopts 'bfdignh6jw:s:' flag; do
         j) JSON+="j" ;; 
         w) JSON+="w" && JSON_FILE=${OPTARG} ;;
         s) JSON+="s" && JSON_SEND=${OPTARG} ;; 
+        p) SkipGovernors=true ;;
         *) exit 1 ;;
     esac
 done
@@ -99,6 +106,10 @@ if [[ -z "$IPV4_CHECK" && -z "$IPV6_CHECK" ]]; then
 	echo -e "Warning: Both IPv4 AND IPv6 connectivity were not detected. Check for DNS issues..."
 fi
 
+# Store original governor and policy
+ORIGINAL_GOVERNOR=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)
+ORIGINAL_POLICY=$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null)
+
 # print help and exit script, if help flag was passed
 if [ ! -z "$PRINT_HELP" ]; then
 	echo -e
@@ -121,6 +132,7 @@ if [ ! -z "$PRINT_HELP" ]; then
 	echo -e "       -j : print jsonified YABS results at conclusion of test"
 	echo -e "       -w <filename> : write jsonified YABS results to disk using file name provided"
 	echo -e "       -s <url> : send jsonified YABS results to URL"
+	echo -e "       -p : skip governor and policy checks/changes"
 	echo -e
 	echo -e "Detected Arch: $ARCH"
 	echo -e
@@ -156,6 +168,58 @@ if [ ! -z "$PRINT_HELP" ]; then
 
 	exit 0
 fi
+
+function check_cpu_governor {
+    if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ]; then
+        ORIGINAL_GOVERNOR=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)
+        echo -e "\nCurrent CPU governor: $ORIGINAL_GOVERNOR"
+        if [ "$ORIGINAL_GOVERNOR" != "performance" ]; then
+            echo -n "Setting CPU governor to performance... "
+            echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null 2>&1
+            new_governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)
+            if [ "$new_governor" == "performance" ]; then
+                echo -e "✓"
+            else
+                echo -e "✗"
+            fi
+        else
+            echo -e "CPU governor already set to performance"
+        fi
+    else
+        echo -e "\nUnable to check CPU governor. File not found."
+        new_governor="unknown"
+    fi
+}
+function check_cpu_policy {
+    if [ -f /sys/devices/system/cpu/cpufreq/policy0/scaling_governor ]; then
+        echo -e "\nCurrent CPU policy: $ORIGINAL_POLICY"
+        if [ "$ORIGINAL_POLICY" != "performance" ]; then
+            echo -n "Setting CPU policy to performance... "
+            echo performance | tee /sys/devices/system/cpu/cpufreq/policy*/scaling_governor > /dev/null 2>&1
+            new_policy=$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor)
+            if [ "$new_policy" == "performance" ]; then
+                echo -e "✓"
+            else
+                echo -e "✗"
+            fi
+        else
+            echo -e "CPU policy already set to performance"
+        fi
+    else
+        echo -e "\nUnable to check CPU policy. File not found."
+        new_policy="unknown"
+    fi
+}
+function restore_cpu_settings {
+    if [ ! -z "$ORIGINAL_GOVERNOR" ]; then
+        echo -e "\nRestoring original CPU governor..."
+        echo $ORIGINAL_GOVERNOR | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+    fi
+    if [ ! -z "$ORIGINAL_POLICY" ]; then
+        echo -e "Restoring original CPU policy..."
+        echo $ORIGINAL_POLICY | tee /sys/devices/system/cpu/cpufreq/policy*/scaling_governor
+    fi
+}
 
 # format_size
 # Purpose: Formats raw disk and memory sizes from kibibytes (KiB) to largest unit
@@ -228,7 +292,14 @@ DISTRO=$(grep 'PRETTY_NAME' /etc/os-release | cut -d '"' -f 2 )
 echo -e "Distro     : $DISTRO"
 KERNEL=$(uname -r)
 echo -e "Kernel     : $KERNEL"
-
+echo "just before checking and setting governors and policies"
+echo $ORIGINAL_GOVERNOR
+echo $ORIGINAL_POLICY
+# Check and set CPU governor and policy if not skipped
+if [ -z "$SkipGovernors" ]; then
+    check_cpu_governor
+    check_cpu_policy
+fi
 if [ ! -z $JSON ]; then
     UPTIME_S=$(awk '{print $1}' /proc/uptime)
     JSON_RESULT=$(cat <<EOF
@@ -244,7 +315,9 @@ if [ ! -z $JSON ]; then
     "cpu": {
         "model": "$CPU_PROC",
         "cores": $CPU_CORES,
-        "freq": "$CPU_FREQ"
+        "freq": "$CPU_FREQ",
+        "governor": "$CPU_GOVERNOR",
+        "policy": "$CPU_POLICY"
     },
     "mem": {
         "ram": $TOTAL_RAM_RAW,
@@ -253,11 +326,6 @@ if [ ! -z $JSON ]; then
 EOF
     )
 fi
-
-# Remove the call to ip_info function
-# if [ -z $SKIP_NET ]; then
-#     ip_info
-# fi
 
 # create a directory in the same location that the script is being run to temporarily store YABS-related files
 DATE=$(date -Iseconds | sed -e "s/:/_/g")
@@ -281,6 +349,9 @@ trap catch_abort INT
 function catch_abort() {
 	echo -e "\n** Aborting YABS. Cleaning up files...\n"
 	rm -rf "$YABS_PATH"
+	if [ -z "$SkipGovernors" ]; then
+        restore_cpu_settings
+    fi
 	unset LC_ALL
 	exit 0
 }
@@ -870,6 +941,11 @@ fi
 echo -e
 rm -rf "$YABS_PATH"
 
+# Restore original CPU settings
+if [ -z "$SkipGovernors" ]; then
+    restore_cpu_settings
+fi
+
 YABS_END_TIME=$(date +%s)
 
 # calculate_time_taken
@@ -924,3 +1000,4 @@ fi
 
 # reset locale settings
 unset LC_ALL
+echo "test"
