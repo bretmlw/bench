@@ -593,7 +593,7 @@ elif [ -z "$SKIP_FIO" ]; then
 		# init global array to store disk performance values
 		declare -a DISK_RESULTS DISK_RESULTS_RAW
 		# disk block sizes to evaluate
-		BLOCK_SIZES=( "4k" "64k" "512k" "1m" )
+		BLOCK_SIZES=( "4k" "16k" "512k" "1m" "16m" )
 
 		# execute disk performance test
 		disk_test "${BLOCK_SIZES[@]}"
