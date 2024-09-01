@@ -292,9 +292,7 @@ DISTRO=$(grep 'PRETTY_NAME' /etc/os-release | cut -d '"' -f 2 )
 echo -e "Distro     : $DISTRO"
 KERNEL=$(uname -r)
 echo -e "Kernel     : $KERNEL"
-echo "just before checking and setting governors and policies"
-echo $ORIGINAL_GOVERNOR
-echo $ORIGINAL_POLICY
+
 # Check and set CPU governor and policy if not skipped
 if [ -z "$SkipGovernors" ]; then
     check_cpu_governor
@@ -1002,4 +1000,3 @@ fi
 
 # reset locale settings
 unset LC_ALL
-echo "test"
