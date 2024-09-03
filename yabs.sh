@@ -45,7 +45,7 @@ check_and_install_packages() {
     echo -e "\nChecking and Installing Necessary Packages:"
     echo -e "---------------------------------"
     
-    PACKAGES=("fio" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu")
+    PACKAGES=("fio" "bc" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu" "stress-ng")
     PACKAGES_TO_INSTALL=()
     NOT_FOUND_PACKAGES=()
 
@@ -87,6 +87,23 @@ check_and_install_packages() {
 
 # Call the function to check and install packages
 check_and_install_packages
+
+# Function to check load average and wait if necessary
+check_load_average() {
+    echo -e "Checking system load... "
+    while true; do
+        load=$(cat /proc/loadavg | awk '{print $1}')
+        if (( $(echo "$load < 0.1" | bc -l) )); then
+            echo -e "\nLoad average is below 0.1. Proceeding with benchmarking."
+            break
+        else
+            echo -e "\nCurrent load: $load. Waiting for 5 seconds... "
+            sleep 5
+        fi
+    done
+}
+
+
 
 # determine architecture of host
 ARCH=$(uname -m)
@@ -340,6 +357,9 @@ DISTRO=$(grep 'PRETTY_NAME' /etc/os-release | cut -d '"' -f 2 )
 echo -e "Distro     : $DISTRO"
 KERNEL=$(uname -r)
 echo -e "Kernel     : $KERNEL"
+
+# Call the function to check load average
+check_load_average
 
 # Check and set CPU governor and policy if not skipped
 if [ -z "$SkipGovernors" ]; then
