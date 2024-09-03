@@ -21,9 +21,9 @@ fi
 YABS_VERSION="v2024-06-09"
 
 echo -e '# ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## #'
-echo -e '#              Yet-Another-Bench-Script              #'
-echo -e '#                     '$YABS_VERSION'                    #'
-echo -e '# https://github.com/masonr/yet-another-bench-script #'
+echo -e '#                     BretBench                      #'
+echo -e '#                  '$YABS_VERSION'                   #'
+echo -e '#          https://github.com/bretmlw/bench          #'
 echo -e '# ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## #'
 
 echo -e
