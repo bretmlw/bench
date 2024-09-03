@@ -51,7 +51,7 @@ Example JSON output: [example.json](bin/example.json).
 ### General Script Updates
 - [DONE] Wait for load average to be under X before starting the tests
 - Add monitoring (CPU temperature, frequency, and power consumption via Odroid SmartPower 3)
-- [DONE]Function to install all required software packages (iperf3, fio etc)
+- [DONE] Function to install all required software packages (iperf3, fio etc)
 ### Benchmarks to add
 - UnixBench
 - PassMark PerformanceTest
