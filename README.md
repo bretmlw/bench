@@ -66,6 +66,9 @@ Example JSON output: [example.json](bin/example.json).
 ### Geekbench 6
 - Add functionality to run test X times and take the average of those test runs
 
+## Known Issues
+- APT Package install detection doesn't work if command is not the same as the apt package name (lscpu being part of utils-linux for example so it checks if lscpu will run, which it does, but it's not the same as the package name so wouldn't be installed if it wasn't already installed)
+
 ## Tests Conducted
 
  - **[fio](https://github.com/axboe/fio)** - Disk benchmark covering 4, 8, 64, 512KB, and 1/16MB block sizes across read, write, random read, and random write tests. Tests run on a 512MB test file for 30 seconds.
