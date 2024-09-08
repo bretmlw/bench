@@ -8,6 +8,8 @@ fi
 
 # User-definable variables
 UNIXBENCH_NUMBER_OF_RUNS=1
+PERFORMANCETEST_AUTORUN_VALUE=3 # 1 = CPU Only, 2 = RAM Only, 3 = CPU & RAM
+PERFORMANCETEST_DURATION=2 # 1-4 Short, Medium, Long, Longest - Medium (2) is default
 
 # Yet Another Bench Script by Mason Rowe
 # Initial Oct 2019; Last update Jun 2024
@@ -136,11 +138,11 @@ else
 fi
 
 # flags to skip certain performance tests
-unset PREFER_BIN SKIP_FIO SKIP_IPERF SKIP_GEEKBENCH SKIP_NET PRINT_HELP GEEKBENCH_6 DD_FALLBACK IPERF_DL_FAIL JSON JSON_SEND JSON_RESULT JSON_FILE
+unset PREFER_BIN SKIP_FIO SKIP_IPERF SKIP_GEEKBENCH SKIP_NET PRINT_HELP GEEKBENCH_6 DD_FALLBACK IPERF_DL_FAIL JSON JSON_SEND JSON_RESULT JSON_FILE SKIP_PASSMARK
 GEEKBENCH_6="True" # gb6 test enabled by default
 
 # get any arguments that were passed to the script and set the associated skip flags (if applicable)
-while getopts 'bfdignh6jw:s:cu' flag; do
+while getopts 'bfdignh6jw:s:cup' flag; do
     case "${flag}" in
         b) PREFER_BIN="True" ;;
         f) SKIP_FIO="True" ;;
@@ -155,6 +157,7 @@ while getopts 'bfdignh6jw:s:cu' flag; do
         s) JSON+="s" && JSON_SEND=${OPTARG} ;; 
         c) SkipGovernors=true ;;
         u) SKIP_UNIXBENCH="True" ;;
+		p) SKIP_PASSMARK="True" ;;
         *) exit 1 ;;
     esac
 done
@@ -196,16 +199,15 @@ if [ ! -z "$PRINT_HELP" ]; then
 	echo -e "       -f/d : skips the fio disk benchmark test"
 	echo -e "       -i : skips the iperf network test"
 	echo -e "       -g : skips the geekbench performance test"
-	echo -e "       -n : skips the network information lookup and print out"
 	echo -e "       -h : prints this lovely message, shows any flags you passed,"
 	echo -e "            shows if fio/iperf3 local packages have been detected,"
 	echo -e "            then exits"
-	echo -e "       -6 : run Geekbench 6 benchmark"
 	echo -e "       -j : print jsonified YABS results at conclusion of test"
 	echo -e "       -w <filename> : write jsonified YABS results to disk using file name provided"
 	echo -e "       -s <url> : send jsonified YABS results to URL"
 	echo -e "       -c : skip governor and policy checks/changes"
 	echo -e "       -u : skips the UnixBench performance test"
+	echo -e "       -p : skips the PassMark PerformanceTest benchmark"
 	echo -e
 	echo -e "Detected Arch: $ARCH"
 	echo -e
@@ -1162,6 +1164,100 @@ if [ -z "$SKIP_UNIXBENCH" ]; then
     run_unixbench
 fi
 
+function run_passmark {
+    echo -e "\nRunning PassMark PerformanceTest..."
+    
+    PASSMARK_PATH=$YABS_PATH/passmark
+    mkdir -p "$PASSMARK_PATH"
+    
+    # Determine the correct download URL based on architecture
+    if [[ $ARCH == "aarch64" || $ARCH == "arm64" ]]; then
+        PASSMARK_URL="https://www.passmark.com/downloads/pt_linux_arm64.zip"
+        PASSMARK_EXE="pt_linux_arm64"
+    elif [[ $ARCH == "x86_64" || $ARCH == "x64" ]]; then
+        PASSMARK_URL="https://www.passmark.com/downloads/pt_linux_x64.zip"
+        PASSMARK_EXE="pt_linux_x64"
+    else
+        echo "Unsupported architecture for PassMark PerformanceTest. Skipping test."
+        return
+    fi
+    
+    # Download and extract PassMark PerformanceTest
+    if [[ ! -z $LOCAL_CURL ]]; then
+        curl -s -L "$PASSMARK_URL" -o "$PASSMARK_PATH/passmark.zip"
+    else
+        wget -q "$PASSMARK_URL" -O "$PASSMARK_PATH/passmark.zip"
+    fi
+    
+    unzip -q "$PASSMARK_PATH/passmark.zip" -d "$PASSMARK_PATH"
+    
+    if [ ! -f "$PASSMARK_PATH/PerformanceTest/$PASSMARK_EXE" ]; then
+        echo "Failed to download or extract PassMark PerformanceTest. Skipping test."
+        return
+    fi
+    
+    # Run PassMark PerformanceTest
+    pushd "$PASSMARK_PATH/PerformanceTest" > /dev/null
+    ./$PASSMARK_EXE -r $PERFORMANCETEST_AUTORUN_VALUE -d $PERFORMANCETEST_DURATION
+    popd > /dev/null
+    
+    # Parse results
+    PASSMARK_RESULTS=$(cat "$PASSMARK_PATH/PerformanceTest/results_all.yml")
+    
+    # Extract and format results
+    parse_passmark_results
+    
+    # Print results
+    echo -e "\nPassMark PerformanceTest Results:"
+    echo -e "---------------------------------"
+    echo -e "CPU Mark: $PASSMARK_CPU_MARK"
+    echo -e "Memory Mark: $PASSMARK_MEMORY_MARK"
+    echo -e "\nFor detailed results, please check the JSON output."
+}
+
+function parse_passmark_results {
+    # Extract results using awk
+    PASSMARK_RESULTS=$(awk '/Results:/,/SystemInformation:/' "$PASSMARK_PATH/PerformanceTest/results_all.yml")
+    
+    # Parse individual results
+    PASSMARK_CPU_MARK=$(echo "$PASSMARK_RESULTS" | awk '/SUMM_CPU:/ {print int($2)}')
+    PASSMARK_MEMORY_MARK=$(echo "$PASSMARK_RESULTS" | awk '/SUMM_ME:/ {print int($2)}')
+    
+    # Create JSON array for PassMark results
+    PASSMARK_JSON='"passmark":{'
+    PASSMARK_JSON+='"CPU Mark":'$PASSMARK_CPU_MARK
+    PASSMARK_JSON+=',"Memory Mark":'$PASSMARK_MEMORY_MARK
+    PASSMARK_JSON+=',"CPU":{
+        "Integer Math":'"$(echo "$PASSMARK_RESULTS" | awk '/CPU_INTEGER_MATH:/ {print int($2)}')"',
+        "Floating Point Math":'"$(echo "$PASSMARK_RESULTS" | awk '/CPU_FLOATINGPOINT_MATH:/ {print int($2)}')"',
+        "Prime Numbers":'"$(echo "$PASSMARK_RESULTS" | awk '/CPU_PRIME:/ {print int($2)}')"',
+        "Sorting":'"$(echo "$PASSMARK_RESULTS" | awk '/CPU_SORTING:/ {print int($2)}')"',
+        "Encryption":'"$(echo "$PASSMARK_RESULTS" | awk '/CPU_ENCRYPTION:/ {print int($2)}')"',
+        "Compression":'"$(echo "$PASSMARK_RESULTS" | awk '/CPU_COMPRESSION:/ {print int($2)}')"',
+        "Single Thread":'"$(echo "$PASSMARK_RESULTS" | awk '/CPU_SINGLETHREAD:/ {print int($2)}')"',
+        "Physics":'"$(echo "$PASSMARK_RESULTS" | awk '/CPU_PHYSICS:/ {print int($2)}')"'
+    }'
+    PASSMARK_JSON+=',"Memory":{
+        "Database Operations":'"$(echo "$PASSMARK_RESULTS" | awk '/ME_ALLOC_S:/ {print int($2)}')"',
+        "Read Cached":'"$(echo "$PASSMARK_RESULTS" | awk '/ME_READ_S:/ {print int($2)}')"',
+        "Read Uncached":'"$(echo "$PASSMARK_RESULTS" | awk '/ME_READ_L:/ {print int($2)}')"',
+        "Write":'"$(echo "$PASSMARK_RESULTS" | awk '/ME_WRITE:/ {print int($2)}')"',
+        "Available RAM":'"$(echo "$PASSMARK_RESULTS" | awk '/ME_LARGE:/ {print int($2)}')"',
+        "Latency":'"$(echo "$PASSMARK_RESULTS" | awk '/ME_LATENCY:/ {print int($2)}')"',
+        "Threaded":'"$(echo "$PASSMARK_RESULTS" | awk '/ME_THREADED:/ {print int($2)}')"'
+    }'
+    PASSMARK_JSON+='}'
+    
+    # Add PassMark results to the main JSON result
+    if [ ! -z $JSON ]; then
+        JSON_RESULT+=",$PASSMARK_JSON"
+    fi
+}
+
+# if the skip passmark flag was set, skip the passmark performance test, otherwise test passmark performance
+if [ -z "$SKIP_PASSMARK" ]; then
+    run_passmark
+fi
 # finished all tests, clean up all YABS files and exit
 echo -e
 rm -rf "$YABS_PATH"
