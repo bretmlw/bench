@@ -6,6 +6,9 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# User-definable variables
+UNIXBENCH_NUMBER_OF_RUNS=1
+
 # Yet Another Bench Script by Mason Rowe
 # Initial Oct 2019; Last update Jun 2024
 
@@ -48,7 +51,7 @@ check_and_install_packages() {
     echo -e "\nChecking and Installing Necessary Packages:"
     echo -e "---------------------------------"
     
-    PACKAGES=("fio" "bc" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu" "stress-ng")
+    PACKAGES=("fio" "bc" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu" "stress-ng" "jq")
     PACKAGES_TO_INSTALL=()
     NOT_FOUND_PACKAGES=()
 
@@ -137,7 +140,7 @@ unset PREFER_BIN SKIP_FIO SKIP_IPERF SKIP_GEEKBENCH SKIP_NET PRINT_HELP GEEKBENC
 GEEKBENCH_6="True" # gb6 test enabled by default
 
 # get any arguments that were passed to the script and set the associated skip flags (if applicable)
-while getopts 'bfdignh6jw:s:p' flag; do
+while getopts 'bfdignh6jw:s:pu' flag; do
     case "${flag}" in
         b) PREFER_BIN="True" ;;
         f) SKIP_FIO="True" ;;
@@ -151,6 +154,7 @@ while getopts 'bfdignh6jw:s:p' flag; do
         w) JSON+="w" && JSON_FILE=${OPTARG} ;;
         s) JSON+="s" && JSON_SEND=${OPTARG} ;; 
         p) SkipGovernors=true ;;
+        u) SKIP_UNIXBENCH="True" ;;
         *) exit 1 ;;
     esac
 done
@@ -201,6 +205,7 @@ if [ ! -z "$PRINT_HELP" ]; then
 	echo -e "       -w <filename> : write jsonified YABS results to disk using file name provided"
 	echo -e "       -s <url> : send jsonified YABS results to URL"
 	echo -e "       -p : skip governor and policy checks/changes"
+	echo -e "       -u : skips the UnixBench performance test"
 	echo -e
 	echo -e "Detected Arch: $ARCH"
 	echo -e
@@ -1081,6 +1086,80 @@ if [ -z "$SKIP_GEEKBENCH" ]; then
     fi
     [[ ! -z $JSON ]] && [[ $(echo -n $JSON_RESULT | tail -c 1) == ',' ]] && JSON_RESULT=${JSON_RESULT::${#JSON_RESULT}-1}
     [[ ! -z $JSON ]] && JSON_RESULT+=']'
+fi
+
+function run_unixbench {
+    echo -e "\nRunning UnixBench performance test..."
+    
+    # Create UnixBench directory
+    UNIXBENCH_PATH=$YABS_PATH/byte-unixbench
+    mkdir -p "$UNIXBENCH_PATH"
+    
+    # Clone UnixBench repository
+    git clone https://github.com/kdlucas/byte-unixbench "$UNIXBENCH_PATH"
+    
+    if [ ! -d "$UNIXBENCH_PATH/UnixBench" ]; then
+        echo "Failed to clone UnixBench repository. Skipping UnixBench test."
+        return
+    fi
+    
+    # Run UnixBench
+    pushd "$UNIXBENCH_PATH/UnixBench" > /dev/null
+    ./Run -i $UNIXBENCH_NUMBER_OF_RUNS > unixbench_results.txt
+    popd > /dev/null
+    
+    # Parse results
+    UNIXBENCH_OUTPUT=$(cat "$UNIXBENCH_PATH/UnixBench/unixbench_results.txt")
+    
+    # Extract single-core and multi-core results
+    SINGLE_CORE_RESULTS=$(echo "$UNIXBENCH_OUTPUT" | sed -n '/running 1 parallel copy of tests/,/running [0-9]* parallel copies of tests/p')
+    MULTI_CORE_RESULTS=$(echo "$UNIXBENCH_OUTPUT" | sed -n '/running [0-9]* parallel copies of tests/,$p')
+    
+    # Function to parse results and generate JSON
+    parse_results() {
+        local results="$1"
+        local json=""
+        
+        while IFS= read -r line; do
+            if [[ $line =~ ^([^0-9]+)[[:space:]]+([0-9.]+)[[:space:]]+([0-9.]+)[[:space:]]+([0-9.]+)$ ]]; then
+                test_name="${BASH_REMATCH[1]}"
+                baseline="${BASH_REMATCH[2]}"
+                result="${BASH_REMATCH[3]}"
+                index="${BASH_REMATCH[4]}"
+                
+                json+="\"$test_name\": {\"baseline\": $baseline, \"result\": $result, \"index\": $index},"
+            elif [[ $line =~ ^System[[:space:]]Benchmarks[[:space:]]Index[[:space:]]Score[[:space:]]+([0-9.]+)$ ]]; then
+                overall_score="${BASH_REMATCH[1]}"
+                json+="\"Overall Index Score\": $overall_score"
+            fi
+        done <<< "$results"
+        
+        echo "{$json}"
+    }
+    
+    # Generate JSON for single-core and multi-core results
+    SINGLE_CORE_JSON=$(parse_results "$SINGLE_CORE_RESULTS")
+    MULTI_CORE_JSON=$(parse_results "$MULTI_CORE_RESULTS")
+    
+    # Combine results into final JSON
+    UNIXBENCH_JSON="{\"unixbench\": {\"single-core\": {\"System Benchmarks Index\": $SINGLE_CORE_JSON}, \"multi-core\": {\"System Benchmarks Index\": $MULTI_CORE_JSON}}}"
+    
+    # Add UnixBench results to the main JSON result
+    if [ ! -z $JSON ]; then
+        JSON_RESULT+=",$(echo $UNIXBENCH_JSON | sed 's/^{//;s/}$//')"
+    fi
+    
+    # Print results
+    echo -e "\nUnixBench Results:"
+    echo -e "---------------------------------"
+    echo -e "Single-core Overall Index Score: $(echo $SINGLE_CORE_JSON | jq -r '."Overall Index Score"')"
+    echo -e "Multi-core Overall Index Score: $(echo $MULTI_CORE_JSON | jq -r '."Overall Index Score"')"
+    echo -e "\nFor detailed results, please check the JSON output."
+}
+
+# if the skip unixbench flag was set, skip the unixbench performance test, otherwise test unixbench performance
+if [ -z "$SKIP_UNIXBENCH" ]; then
+    run_unixbench
 fi
 
 # finished all tests, clean up all YABS files and exit
