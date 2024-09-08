@@ -40,6 +40,9 @@ else
 	echo -e "\nWarning: locale 'C' not detected. Test outputs may not be parsed correctly."
 fi
 
+# Declare DISK_RESULTS as an associative array
+declare -A DISK_RESULTS
+
 # Function to check and install necessary apt packages
 check_and_install_packages() {
     echo -e "\nChecking and Installing Necessary Packages:"
@@ -491,48 +494,100 @@ function format_iops {
 	echo $RESULT
 }
 
-# disk_test
-# Purpose: This method is designed to test the disk performance of the host using the partition that the
-#          script is being run from using fio random read/write speed tests.
-# Parameters:
-#          - (none)
+json_escape() {
+    printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+}
+
 function disk_test {
-	if [[ "$ARCH" = "aarch64" || "$ARCH" = "arm" ]]; then
-		FIO_SIZE=512M
-	else
-		FIO_SIZE=2G
-	fi
+    if [[ "$ARCH" = "aarch64" || "$ARCH" = "arm" ]]; then
+        FIO_SIZE=512M
+    else
+        FIO_SIZE=1G
+    fi
 
-	# run a quick test to generate the fio test file to be used by the actual tests
-	echo -en "Generating fio test file..."
-	$FIO_CMD --name=setup --ioengine=libaio --rw=read --bs=64k --iodepth=64 --numjobs=2 --size=$FIO_SIZE --runtime=1 --gtod_reduce=1 --filename="$DISK_PATH/test.fio" --direct=1 --minimal &> /dev/null
-	echo -en "\r\033[0K"
+    TEST_TYPES=("read" "write" "randread" "randwrite")
 
-	# get array of block sizes to evaluate
-	BLOCK_SIZES=("$@")
+    echo "Starting disk tests..."
+    
+    for BS in "${BLOCK_SIZES[@]}"; do
+        for TEST_TYPE in "${TEST_TYPES[@]}"; do
+            echo "Running fio $TEST_TYPE disk test with $BS block size..."
+            
+            OUTPUT=$(timeout 60 $FIO_CMD --randrepeat=1 --ioengine=libaio --direct=1 --gtod_reduce=1 --name=$TEST_TYPE --filename="$DISK_PATH/test.fio" --bs=$BS --iodepth=64 --size=$FIO_SIZE --readwrite=$TEST_TYPE --runtime=3 --time_based --group_reporting --minimal 2>&1)
+            FIO_EXIT_STATUS=$?
+            
+            if [ $FIO_EXIT_STATUS -eq 0 ]; then
+                echo "Test completed successfully."
+                DISK_TEST=$(echo "$OUTPUT" | grep $TEST_TYPE)
+                
+                if [ -n "$DISK_TEST" ]; then
+                    if [[ "$TEST_TYPE" == *"write"* ]]; then
+                        DISK_SPEED=$(echo $DISK_TEST | awk -F';' '{print $48}')
+                        DISK_IOPS=$(echo $DISK_TEST | awk -F';' '{print $49}')
+                    else
+                        DISK_SPEED=$(echo $DISK_TEST | awk -F';' '{print $7}')
+                        DISK_IOPS=$(echo $DISK_TEST | awk -F';' '{print $8}')
+                    fi
+                    
+                    DISK_RESULTS["${BS}_${TEST_TYPE}_speed"]=$DISK_SPEED
+                    DISK_RESULTS["${BS}_${TEST_TYPE}_iops"]=$DISK_IOPS
 
-	for BS in "${BLOCK_SIZES[@]}"; do
-		# run rand read/write mixed fio test with block size = $BS
-		echo -en "Running fio random mixed R+W disk test with $BS block size..."
-		DISK_TEST=$(timeout 35 $FIO_CMD --name=rand_rw_$BS --ioengine=libaio --rw=randrw --rwmixread=50 --bs=$BS --iodepth=64 --numjobs=2 --size=$FIO_SIZE --runtime=30 --gtod_reduce=1 --direct=1 --filename="$DISK_PATH/test.fio" --group_reporting --minimal 2> /dev/null | grep rand_rw_$BS)
-		DISK_IOPS_R=$(echo $DISK_TEST | awk -F';' '{print $8}')
-		DISK_IOPS_W=$(echo $DISK_TEST | awk -F';' '{print $49}')
-		DISK_IOPS=$(awk -v a="$DISK_IOPS_R" -v b="$DISK_IOPS_W" 'BEGIN { print a + b }')
-		DISK_TEST_R=$(echo $DISK_TEST | awk -F';' '{print $7}')
-		DISK_TEST_W=$(echo $DISK_TEST | awk -F';' '{print $48}')
-		DISK_TEST=$(awk -v a="$DISK_TEST_R" -v b="$DISK_TEST_W" 'BEGIN { print a + b }')
-		DISK_RESULTS_RAW+=( "$DISK_TEST" "$DISK_TEST_R" "$DISK_TEST_W" "$DISK_IOPS" "$DISK_IOPS_R" "$DISK_IOPS_W" )
+                    FORMATTED_IOPS=$(format_iops $DISK_IOPS)
+                    FORMATTED_SPEED=$(format_speed $DISK_SPEED)
+                    
+                    echo "Results: Speed: $FORMATTED_SPEED, IOPS: $FORMATTED_IOPS"
+                else
+                    echo "Warning: No test results found in the output."
+                fi
+            else
+                echo "Test failed or timed out."
+            fi
+            
+            echo "----------------------------------------"
+        done
+    done
+    
+    echo "Disk tests completed."
 
-		DISK_IOPS=$(format_iops $DISK_IOPS)
-		DISK_IOPS_R=$(format_iops $DISK_IOPS_R)
-		DISK_IOPS_W=$(format_iops $DISK_IOPS_W)
-		DISK_TEST=$(format_speed $DISK_TEST)
-		DISK_TEST_R=$(format_speed $DISK_TEST_R)
-		DISK_TEST_W=$(format_speed $DISK_TEST_W)
+    if [[ ! -z $JSON ]]; then
+        DISK_JSON='"partition":'$(json_escape "$CURRENT_PARTITION")
+        DISK_JSON+=',"fio":{'
+        for BS in "${BLOCK_SIZES[@]}"; do
+            DISK_JSON+="\"$BS\":{"
+            for TEST_TYPE in "${TEST_TYPES[@]}"; do
+                SPEED_KEY="${BS}_${TEST_TYPE}_speed"
+                IOPS_KEY="${BS}_${TEST_TYPE}_iops"
+                DISK_JSON+="\"$TEST_TYPE\":{\"speed\":${DISK_RESULTS[$SPEED_KEY]:-0},\"iops\":${DISK_RESULTS[$IOPS_KEY]:-0}},"
+            done
+            DISK_JSON=${DISK_JSON%,}  # Remove trailing comma
+            DISK_JSON+="},"
+        done
+        DISK_JSON=${DISK_JSON%,}  # Remove trailing comma
+        DISK_JSON+='}'
+    fi
 
-		DISK_RESULTS+=( "$DISK_TEST" "$DISK_TEST_R" "$DISK_TEST_W" "$DISK_IOPS" "$DISK_IOPS_R" "$DISK_IOPS_W" )
-		echo -en "\r\033[0K"
-	done
+    # Print results
+    echo -e "\nfio Disk Speed Tests (Partition $CURRENT_PARTITION):"
+    echo -e "---------------------------------"
+    for i in $(seq 0 2 $((${#BLOCK_SIZES[@]} - 1))); do
+        if [ $i -gt 0 ]; then 
+            printf "%-10s | %-20s | %-20s\n" "" "" ""
+        fi
+        printf "%-10s | %-11s %8s | %-11s %8s\n" "Block Size" "${BLOCK_SIZES[i]}" "(IOPS)" "${BLOCK_SIZES[i+1]}" "(IOPS)"
+        printf "%-10s | %-11s %8s | %-11s %8s\n" "  ------" "---" "---- " "----" "---- "
+
+        for TEST_TYPE in "${TEST_TYPES[@]}"; do
+            SPEED1="${DISK_RESULTS[${BLOCK_SIZES[i]}_${TEST_TYPE}_speed]}"
+            IOPS1="${DISK_RESULTS[${BLOCK_SIZES[i]}_${TEST_TYPE}_iops]}"
+            SPEED2="${DISK_RESULTS[${BLOCK_SIZES[i+1]}_${TEST_TYPE}_speed]}"
+            IOPS2="${DISK_RESULTS[${BLOCK_SIZES[i+1]}_${TEST_TYPE}_iops]}"
+            
+            TEST_NAME=$(tr '[:lower:]' '[:upper:]' <<< ${TEST_TYPE:0:1})${TEST_TYPE:1}
+            printf "%-10s | %-11s %8s | %-11s %8s\n" "$TEST_NAME" \
+                "$(format_speed "$SPEED1")" "($IOPS1)" \
+                "$(format_speed "$SPEED2")" "($IOPS2)"
+        done
+    done
 }
 
 # dd_test
@@ -658,14 +713,30 @@ elif [ -z "$SKIP_FIO" ]; then
 	if [ -z "$DD_FALLBACK" ]; then # if not falling back on dd tests, run fio test
 		echo -en "\r\033[0K"
 
-		# init global array to store disk performance values
-		declare -a DISK_RESULTS DISK_RESULTS_RAW
 		# disk block sizes to evaluate
 		BLOCK_SIZES=( "4k" "8k" "64k" "512k" "1m" "16m" )
 
 		# execute disk performance test
 		disk_test "${BLOCK_SIZES[@]}"
-	fi
+		
+		CURRENT_PARTITION=$(df -P . 2>/dev/null | tail -1 | cut -d' ' -f 1)
+		if [[ ! -z $JSON ]]; then
+    CURRENT_PARTITION=${CURRENT_PARTITION:-""}
+    DISK_JSON='"partition":'$(json_escape "$CURRENT_PARTITION")
+    DISK_JSON+=',"fio":{'
+    for BS in "${BLOCK_SIZES[@]}"; do
+        DISK_JSON+="\"$BS\":{"
+        for TEST_TYPE in "${TEST_TYPES[@]}"; do
+            SPEED_KEY="${BS}_${TEST_TYPE}_speed"
+            IOPS_KEY="${BS}_${TEST_TYPE}_iops"
+            DISK_JSON+="\"$TEST_TYPE\":{\"speed\":${DISK_RESULTS[$SPEED_KEY]:-0},\"iops\":${DISK_RESULTS[$IOPS_KEY]:-0}},"
+        done
+        DISK_JSON=${DISK_JSON%,}  # Remove trailing comma
+        DISK_JSON+="},"
+    done
+    DISK_JSON=${DISK_JSON%,}  # Remove trailing comma
+    DISK_JSON+='}'
+fi	fi
 
 	if [[ ! -z "$DD_FALLBACK" || ${#DISK_RESULTS[@]} -eq 0 ]]; then # fio download failed or test was killed or returned an error, run dd test instead
 		if [ -z "$DD_FALLBACK" ]; then # print error notice if ended up here due to fio error
@@ -698,32 +769,39 @@ elif [ -z "$SKIP_FIO" ]; then
 		printf "%-6s | %-11s | %-11s | %-11s | %-6.2f %-4s\n" "Read" "${DISK_READ_TEST_RES[0]}" "${DISK_READ_TEST_RES[1]}" "${DISK_READ_TEST_RES[2]}" "${DISK_READ_TEST_AVG}" "${DISK_READ_TEST_UNIT}" 
 	else # fio tests completed successfully, print results
 		CURRENT_PARTITION=$(df -P . 2>/dev/null | tail -1 | cut -d' ' -f 1)
-		[[ ! -z $JSON ]] && JSON_RESULT+=',"partition":"'$CURRENT_PARTITION'","fio":['
-		DISK_RESULTS_NUM=$(expr ${#DISK_RESULTS[@]} / 6)
-		DISK_COUNT=0
+		if [[ ! -z $JSON ]]; then
+			if [ ! -z "$DISK_JSON" ]; then
+				JSON_RESULT+=",$DISK_JSON"
+			else
+				echo "WARNING: Disk test results not available for JSON output."
+				JSON_RESULT+=',"partition":"","fio":{}'
+			fi
+		fi
 
 		# print disk speed test results
-		echo -e "fio Disk Speed Tests (Mixed R/W 50/50) (Partition $CURRENT_PARTITION):"
+		echo -e "fio Disk Speed Tests (Partition $CURRENT_PARTITION):"
 		echo -e "---------------------------------"
 
-		while [ $DISK_COUNT -lt $DISK_RESULTS_NUM ] ; do
-			if [ $DISK_COUNT -gt 0 ]; then printf "%-10s | %-20s | %-20s\n"; fi
-			printf "%-10s | %-11s %8s | %-11s %8s\n" "Block Size" "${BLOCK_SIZES[DISK_COUNT]}" "(IOPS)" "${BLOCK_SIZES[DISK_COUNT+1]}" "(IOPS)"
-			printf "%-10s | %-11s %8s | %-11s %8s\n" "  ------" "---" "---- " "----" "---- "
-			printf "%-10s | %-11s %8s | %-11s %8s\n" "Read" "${DISK_RESULTS[DISK_COUNT*6+1]}" "(${DISK_RESULTS[DISK_COUNT*6+4]})" "${DISK_RESULTS[(DISK_COUNT+1)*6+1]}" "(${DISK_RESULTS[(DISK_COUNT+1)*6+4]})"
-			printf "%-10s | %-11s %8s | %-11s %8s\n" "Write" "${DISK_RESULTS[DISK_COUNT*6+2]}" "(${DISK_RESULTS[DISK_COUNT*6+5]})" "${DISK_RESULTS[(DISK_COUNT+1)*6+2]}" "(${DISK_RESULTS[(DISK_COUNT+1)*6+5]})"
-			printf "%-10s | %-11s %8s | %-11s %8s\n" "Total" "${DISK_RESULTS[DISK_COUNT*6]}" "(${DISK_RESULTS[DISK_COUNT*6+3]})" "${DISK_RESULTS[(DISK_COUNT+1)*6]}" "(${DISK_RESULTS[(DISK_COUNT+1)*6+3]})"
-			if [ ! -z $JSON ]; then
-				JSON_RESULT+='{"bs":"'${BLOCK_SIZES[DISK_COUNT]}'","speed_r":'${DISK_RESULTS_RAW[DISK_COUNT*6+1]}',"iops_r":'${DISK_RESULTS_RAW[DISK_COUNT*6+4]}
-				JSON_RESULT+=',"speed_w":'${DISK_RESULTS_RAW[DISK_COUNT*6+2]}',"iops_w":'${DISK_RESULTS_RAW[DISK_COUNT*6+5]}',"speed_rw":'${DISK_RESULTS_RAW[DISK_COUNT*6]}
-				JSON_RESULT+=',"iops_rw":'${DISK_RESULTS_RAW[DISK_COUNT*6+3]}',"speed_units":"KBps"},'
-				JSON_RESULT+='{"bs":"'${BLOCK_SIZES[DISK_COUNT+1]}'","speed_r":'${DISK_RESULTS_RAW[(DISK_COUNT+1)*6+1]}',"iops_r":'${DISK_RESULTS_RAW[(DISK_COUNT+1)*6+4]}
-				JSON_RESULT+=',"speed_w":'${DISK_RESULTS_RAW[(DISK_COUNT+1)*6+2]}',"iops_w":'${DISK_RESULTS_RAW[(DISK_COUNT+1)*6+5]}',"speed_rw":'${DISK_RESULTS_RAW[(DISK_COUNT+1)*6]}
-				JSON_RESULT+=',"iops_rw":'${DISK_RESULTS_RAW[(DISK_COUNT+1)*6+3]}',"speed_units":"KBps"},'
+		# Print results
+		for i in $(seq 0 2 $((${#BLOCK_SIZES[@]} - 1))); do
+			if [ $i -gt 0 ]; then 
+				printf "%-10s | %-20s | %-20s\n" "" "" ""
 			fi
-			DISK_COUNT=$(expr $DISK_COUNT + 2)
+			printf "%-10s | %-11s %8s | %-11s %8s\n" "Block Size" "${BLOCK_SIZES[i]}" "(IOPS)" "${BLOCK_SIZES[i+1]}" "(IOPS)"
+			printf "%-10s | %-11s %8s | %-11s %8s\n" "  ------" "---" "---- " "----" "---- "
+
+			for TEST_TYPE in "${TEST_TYPES[@]}"; do
+				SPEED1="${DISK_RESULTS[${BLOCK_SIZES[i]}_${TEST_TYPE}_speed]}"
+				IOPS1="${DISK_RESULTS[${BLOCK_SIZES[i]}_${TEST_TYPE}_iops]}"
+				SPEED2="${DISK_RESULTS[${BLOCK_SIZES[i+1]}_${TEST_TYPE}_speed]}"
+				IOPS2="${DISK_RESULTS[${BLOCK_SIZES[i+1]}_${TEST_TYPE}_iops]}"
+				
+				TEST_NAME=$(tr '[:lower:]' '[:upper:]' <<< ${TEST_TYPE:0:1})${TEST_TYPE:1}
+				printf "%-10s | %-11s %8s | %-11s %8s\n" "$TEST_NAME" \
+					"$(format_speed "$SPEED1")" "($IOPS1)" \
+					"$(format_speed "$SPEED2")" "($IOPS2)"
+			done
 		done
-		[[ ! -z $JSON ]] && JSON_RESULT=${JSON_RESULT::${#JSON_RESULT}-1} && JSON_RESULT+=']'
 	fi
 fi
 

@@ -1,3 +1,5 @@
 test.yaml
 geekbench.license
 /testing
+*.yml
+*.yaml
