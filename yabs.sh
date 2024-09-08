@@ -51,7 +51,7 @@ check_and_install_packages() {
     echo -e "\nChecking and Installing Necessary Packages:"
     echo -e "---------------------------------"
     
-    PACKAGES=("fio" "bc" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu" "stress-ng" "jq")
+    PACKAGES=("fio" "bc" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu" "stress-ng" "jq" "libncurses5")
     PACKAGES_TO_INSTALL=()
     NOT_FOUND_PACKAGES=()
 
@@ -140,7 +140,7 @@ unset PREFER_BIN SKIP_FIO SKIP_IPERF SKIP_GEEKBENCH SKIP_NET PRINT_HELP GEEKBENC
 GEEKBENCH_6="True" # gb6 test enabled by default
 
 # get any arguments that were passed to the script and set the associated skip flags (if applicable)
-while getopts 'bfdignh6jw:s:pu' flag; do
+while getopts 'bfdignh6jw:s:cu' flag; do
     case "${flag}" in
         b) PREFER_BIN="True" ;;
         f) SKIP_FIO="True" ;;
@@ -153,7 +153,7 @@ while getopts 'bfdignh6jw:s:pu' flag; do
         j) JSON+="j" ;; 
         w) JSON+="w" && JSON_FILE=${OPTARG} ;;
         s) JSON+="s" && JSON_SEND=${OPTARG} ;; 
-        p) SkipGovernors=true ;;
+        c) SkipGovernors=true ;;
         u) SKIP_UNIXBENCH="True" ;;
         *) exit 1 ;;
     esac
@@ -204,7 +204,7 @@ if [ ! -z "$PRINT_HELP" ]; then
 	echo -e "       -j : print jsonified YABS results at conclusion of test"
 	echo -e "       -w <filename> : write jsonified YABS results to disk using file name provided"
 	echo -e "       -s <url> : send jsonified YABS results to URL"
-	echo -e "       -p : skip governor and policy checks/changes"
+	echo -e "       -c : skip governor and policy checks/changes"
 	echo -e "       -u : skips the UnixBench performance test"
 	echo -e
 	echo -e "Detected Arch: $ARCH"
