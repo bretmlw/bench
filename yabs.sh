@@ -10,8 +10,7 @@ fi
 UNIXBENCH_NUMBER_OF_RUNS=1
 PERFORMANCETEST_AUTORUN_VALUE=3
 PERFORMANCETEST_DURATION=1
-PERFORMANCETEST_DOWNLOAD_URL_ARM64="https://www.passmark.com/downloads/pt_linux_arm64.zip"
-PERFORMANCETEST_DOWNLOAD_URL_X64="https://www.passmark.com/downloads/pt_linux_x64.zip"
+CPUMINER_TEST_DURATION=10 # Default duration in seconds
 
 # Yet Another Bench Script by Mason Rowe
 # Initial Oct 2019; Last update Jun 2024
@@ -144,7 +143,7 @@ unset PREFER_BIN SKIP_FIO SKIP_IPERF SKIP_GEEKBENCH SKIP_NET PRINT_HELP GEEKBENC
 GEEKBENCH_6="True" # gb6 test enabled by default
 
 # get any arguments that were passed to the script and set the associated skip flags (if applicable)
-while getopts 'bfdignh6jw:s:cup' flag; do
+while getopts 'bfdignh6jw:s:cupm' flag; do
     case "${flag}" in
         b) PREFER_BIN="True" ;;
         f) SKIP_FIO="True" ;;
@@ -160,6 +159,7 @@ while getopts 'bfdignh6jw:s:cup' flag; do
         c) SkipGovernors=true ;;
         u) SKIP_UNIXBENCH="True" ;;
         p) SKIP_PASSMARK="True" ;;
+		m) SKIP_CPUMINER="True" ;;
         *) exit 1 ;;
     esac
 done
@@ -212,6 +212,7 @@ if [ ! -z "$PRINT_HELP" ]; then
 	echo -e "       -c : skip governor and policy checks/changes"
 	echo -e "       -u : skips the UnixBench performance test"
 	echo -e "       -p : skips the PassMark PerformanceTest benchmark"
+	echo -e "       -m : skips the cpuminer-multi benchmark test"
 	echo -e
 	echo -e "Detected Arch: $ARCH"
 	echo -e
@@ -1301,6 +1302,104 @@ function parse_passmark_results {
 # Add PassMark test execution in the main script flow
 if [ -z "$SKIP_PASSMARK" ]; then
     run_passmark
+fi
+
+function install_cpuminer() {
+    echo -e "\nInstalling cpuminer-multi..."
+    
+    CPUMINER_PATH=$YABS_PATH/cpuminer-multi
+    git clone https://github.com/tpruvot/cpuminer-multi "$CPUMINER_PATH"
+    
+    if [ ! -d "$CPUMINER_PATH" ]; then
+        echo "Failed to clone cpuminer-multi repository. Skipping cpuminer test."
+        return 1
+    fi
+    
+    pushd "$CPUMINER_PATH" > /dev/null
+    ./build.sh
+    popd > /dev/null
+    
+    if [ ! -f "$CPUMINER_PATH/cpuminer" ]; then
+        echo "Failed to build cpuminer. Skipping cpuminer test."
+        return 1
+    fi
+    
+    return 0
+}
+
+function run_cpuminer() {
+    echo -e "\nRunning cpuminer-multi benchmark..."
+    
+    CPUMINER_PATH=$YABS_PATH/cpuminer-multi
+    pushd "$CPUMINER_PATH" > /dev/null
+    
+    CPUMINER_OUTPUT=$(./cpuminer --benchmark --cpu-priority=2 --time-limit=$CPUMINER_TEST_DURATION)
+    
+    popd > /dev/null
+    
+    parse_cpuminer_results "$CPUMINER_OUTPUT"
+}
+
+function parse_cpuminer_results() {
+    local CPUMINER_OUTPUT="$1"
+    local CPUMINER_JSON='"cpuminer-multi":{'
+    CPUMINER_JSON+='"single-core":{'
+    
+    local total_cores=0
+    local total_performance=0
+    declare -A cpu_results
+
+    while IFS= read -r line; do
+        if [[ $line =~ CPU\ #([0-9]+):\ ([0-9.]+)\ kH/s ]]; then
+            cpu_num="${BASH_REMATCH[1]}"
+            performance="${BASH_REMATCH[2]}"
+            cpu_results[$cpu_num]=$performance
+        fi
+    done <<< "$CPUMINER_OUTPUT"
+    
+    echo -e "\ncpuminer-multi Benchmark Results:"
+    echo -e "---------------------------------"
+    echo -e "Single-core results:"
+    
+    for cpu_num in "${!cpu_results[@]}"; do
+        performance="${cpu_results[$cpu_num]}"
+        CPUMINER_JSON+="\"cpu_$cpu_num\":$performance,"
+        total_cores=$((total_cores + 1))
+        total_performance=$(awk "BEGIN {print $total_performance + $performance}")
+        echo -e "  CPU #$cpu_num: $performance kH/s"
+    done
+    
+    # Calculate average and round to 2 decimal places
+    local average=$(awk "BEGIN {printf \"%.2f\", $total_performance / $total_cores}")
+    CPUMINER_JSON+="\"average\":$average"
+    
+    echo -e "  Average: $average kH/s"
+    
+    CPUMINER_JSON+='},"multi-core":{'
+    
+    if [[ $CPUMINER_OUTPUT =~ Benchmark:\ ([0-9.]+)\ kH/s ]]; then
+        benchmark="${BASH_REMATCH[1]}"
+        CPUMINER_JSON+="\"benchmark\":$benchmark"
+    else
+        benchmark="0"
+        CPUMINER_JSON+="\"benchmark\":0"
+    fi
+    
+    echo -e "\nMulti-core result:"
+    echo -e "  Benchmark: $benchmark kH/s"
+    
+    CPUMINER_JSON+='}}'
+    
+    # Add cpuminer results to the main JSON result
+    if [ ! -z $JSON ]; then
+        JSON_RESULT+=",$CPUMINER_JSON"
+    fi
+}
+
+if [ -z "$SKIP_CPUMINER" ]; then
+    if install_cpuminer; then
+        run_cpuminer
+    fi
 fi
 
 # finished all tests, clean up all YABS files and exit
