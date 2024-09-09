@@ -55,7 +55,7 @@ check_and_install_packages() {
     echo -e "\nChecking and Installing Necessary Packages:"
     echo -e "---------------------------------"
     
-    PACKAGES=("fio" "bc" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu" "stress-ng" "jq" "libncurses5")
+    PACKAGES=("fio" "bc" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu" "stress-ng" "jq" "libncurses5" "autoconf" "automake" "autotools-dev" "libcurl4-openssl-dev" "libgmp-dev" "libgmpxx4ldbl" "libjansson-dev" "libssl-dev" "m4")
     PACKAGES_TO_INSTALL=()
     NOT_FOUND_PACKAGES=()
 
