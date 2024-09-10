@@ -112,8 +112,6 @@ check_load_average() {
     done
 }
 
-
-
 # determine architecture of host
 ARCH=$(uname -m)
 if [[ $ARCH = *x86_64* ]]; then
