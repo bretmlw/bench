@@ -55,7 +55,8 @@ Example JSON output: [example.json](bin/example.json).
 ### Benchmarks to add
 - [DONE] UnixBench
 - [DONE - All Core Only] PassMark PerformanceTest
-- cpubench-multi
+- [DONE] cpubench-multi
+- Move the package installation below the -h flag so you don't have to install packages just to get the help message
 
 ### fio
 - [DONE] Modify tests and output to use read, write, random read, and random write rather than mixed.
@@ -68,13 +69,15 @@ Example JSON output: [example.json](bin/example.json).
 
 ## Known Issues
 - APT Package install detection doesn't work if command is not the same as the apt package name (lscpu being part of utils-linux for example so it checks if lscpu will run, which it does, but it's not the same as the package name so wouldn't be installed if it wasn't already installed)
+- Interactive apt install prompts are not handled (iperf3 asks if you want to run as a daemon and hangs)
 
 ## Tests Conducted
 
  - **[fio](https://github.com/axboe/fio)** - Disk benchmark covering 4, 8, 64, 512KB, and 1/16MB block sizes across read, write, random read, and random write tests. Tests run on a 512MB test file for 30 seconds.
  - **[iperf3](https://github.com/esnet/iperf)** - Network benchmark which tests both download and upload to a local endpoint on a 1, or 2.5GbE connection depending on the device. If a device has a WiFi interface, this is also tested.
- - **[Geekbench 6.3.0](https://www.geekbench.com/)** - Geekbench 6.3.0 ARM Preview is used to perform a range of tests. Not the best of benchmarks as it relies heavily on software which differs from machine to machine but in the SBC world a lot of people are using the same images from the vendor, so it's a test that can be used, and taken with a large grain of salt.
+ - **[Geekbench 6.3.0 ARM Preview](https://www.geekbench.com/)** - Geekbench 6.3.0 ARM Preview is used to perform a range of tests. Not the best of benchmarks as it relies heavily on software which differs from machine to machine but in the SBC world a lot of people are using the same images from the vendor, so it's a test that can be used, and taken with a large grain of salt.
  - **[PassMark PerformanceTest](https://www.passmark.com/products/pt_linux/index.php)** - PassMark PerformanceTest is used to get CPU/RAM benchmark data that can be quickly compared. Also relies on software so take it with a pinch of salt.
+ - **[cpuminer-multi](https://github.com/tpruvot/cpuminer-multi)** - CPU miner benchmark
 
 ## Example Output
 
