@@ -259,17 +259,22 @@ function check_cpu_governor {
                 echo -e "✓"
             else
                 echo -e "✗"
+                new_governor=$ORIGINAL_GOVERNOR
             fi
         else
             echo -e "CPU governor already set to performance"
+            new_governor=$ORIGINAL_GOVERNOR
         fi
     else
         echo -e "\nUnable to check CPU governor. File not found."
         new_governor="unknown"
     fi
+    TESTED_GOVERNOR=$new_governor
 }
+
 function check_cpu_policy {
     if [ -f /sys/devices/system/cpu/cpufreq/policy0/scaling_governor ]; then
+        ORIGINAL_POLICY=$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor)
         echo -e "\nCurrent CPU policy: $ORIGINAL_POLICY"
         if [ "$ORIGINAL_POLICY" != "performance" ]; then
             echo -n "Setting CPU policy to performance... "
@@ -279,14 +284,17 @@ function check_cpu_policy {
                 echo -e "✓"
             else
                 echo -e "✗"
+                new_policy=$ORIGINAL_POLICY
             fi
         else
             echo -e "CPU policy already set to performance"
+            new_policy=$ORIGINAL_POLICY
         fi
     else
         echo -e "\nUnable to check CPU policy. File not found."
         new_policy="unknown"
     fi
+    TESTED_POLICY=$new_policy
 }
 function restore_cpu_settings {
     if [ ! -z "$ORIGINAL_GOVERNOR" ]; then
@@ -378,6 +386,13 @@ check_load_average
 if [ -z "$SkipGovernors" ]; then
     check_cpu_governor
     check_cpu_policy
+else
+    # If skipping, just read the current values
+    TESTED_GOVERNOR=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo "unknown")
+    TESTED_POLICY=$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null || echo "unknown")
+    echo -e "\nSkipping CPU governor and policy checks/changes."
+    echo -e "Current CPU governor: $TESTED_GOVERNOR"
+    echo -e "Current CPU policy: $TESTED_POLICY"
 fi
 if [ ! -z $JSON ]; then
     UPTIME_S=$(awk '{print $1}' /proc/uptime)
@@ -397,8 +412,8 @@ if [ ! -z $JSON ]; then
         "freq": "$CPU_FREQ",
         "original_governor": "$ORIGINAL_GOVERNOR",
         "original_policy": "$ORIGINAL_POLICY",
-		"tested_governor": "$new_governor",
-		"tested_policy": "$new_policy"
+        "tested_governor": "$TESTED_GOVERNOR",
+        "tested_policy": "$TESTED_POLICY"
     },
     "mem": {
         "ram": $TOTAL_RAM_RAW,
