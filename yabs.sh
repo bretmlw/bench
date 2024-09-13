@@ -129,7 +129,6 @@ elif [[ $ARCH = *aarch* || $ARCH = *arm* ]]; then
 		# host is running an ARM 32-bit kernel
 		ARCH="arm"
 	fi
-	echo -e "\nARM compatibility is considered *experimental*"
 else
 	# host is running a non-supported kernel
 	echo -e "Architecture not supported by YABS."
