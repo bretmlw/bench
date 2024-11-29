@@ -9,8 +9,8 @@ fi
 # User-definable variables
 UNIXBENCH_NUMBER_OF_RUNS=1
 PERFORMANCETEST_AUTORUN_VALUE=3
-PERFORMANCETEST_DURATION=1
-CPUMINER_TEST_DURATION=10 # Default duration in seconds
+PERFORMANCETEST_DURATION=2
+CPUMINER_TEST_DURATION=300 # Default duration in seconds
 
 # Yet Another Bench Script by Mason Rowe
 # Initial Oct 2019; Last update Jun 2024
@@ -54,7 +54,7 @@ check_and_install_packages() {
     echo -e "\nChecking and Installing Necessary Packages:"
     echo -e "---------------------------------"
     
-    PACKAGES=("fio" "bc" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu" "stress-ng" "jq" "libncurses5" "autoconf" "make" "automake" "autotools-dev" "libcurl4-openssl-dev" "libgmp-dev" "libgmpxx4ldbl" "libjansson-dev" "libssl-dev")
+    PACKAGES=("fio" "bc" "iperf3" "unzip" "bmon" "git" "curl" "wget" "lscpu" "stress-ng" "jq" "libncurses5" "autoconf" "make" "automake" "autotools-dev" "libcurl4-openssl-dev" "libgmp-dev" "libgmpxx4ldbl" "libjansson-dev" "libssl-dev" "zlib*")
     PACKAGES_TO_INSTALL=()
     NOT_FOUND_PACKAGES=()
 
